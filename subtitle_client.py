@@ -1881,6 +1881,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # PyInstaller 打包必需
     # spawn：全新 Python 程序，不繼承 X11 socket fd，避免 XCB 序號衝突
     multiprocessing.set_start_method("spawn")
     main()
