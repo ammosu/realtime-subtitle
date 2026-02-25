@@ -218,10 +218,10 @@ class TranslationDebouncer:
                 temperature=0.1,
             )
             translated = response.choices[0].message.content.strip()
-            print(f"[Translation] {translated}", flush=True)
+            log.info("[Translation] %s", translated)
             self.callback(translated)
         except Exception as e:
-            print(f"[Translation error] {e}", flush=True)
+            log.warning("[Translation error] %s", e)
 
     def shutdown(self):
         with self._lock:
@@ -2004,6 +2004,7 @@ def main() -> None:
     )
     worker.start()
 
+    _last_original   = [""]  # 保留上一筆原文，翻譯到來時不清掉
     _last_translated = [""]  # 保留上一筆翻譯，直到新翻譯到來才替換
 
     def _poll_core():
@@ -2014,11 +2015,14 @@ def main() -> None:
             elif "source" in msg:
                 overlay.update_source_label(msg["source"])
             else:
-                translated = msg.get("translated", "")
-                if translated:
-                    _last_translated[0] = translated
+                # "original" 出現時更新原文；"translated" 出現時更新翻譯
+                # 兩者各自獨立，互不清除
+                if "original" in msg:
+                    _last_original[0] = msg["original"]
+                if msg.get("translated"):
+                    _last_translated[0] = msg["translated"]
                 overlay.set_text(
-                    original=msg.get("original", ""),
+                    original=_last_original[0],
                     translated=_last_translated[0],
                 )
 
