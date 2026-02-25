@@ -1379,6 +1379,39 @@ def _worker_main(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessing.Sim
 
 
 # ---------------------------------------------------------------------------
+# Config file
+# ---------------------------------------------------------------------------
+
+_CONFIG_PATH = os.path.expanduser("~/.config/realtime-subtitle/config.json")
+
+_CONFIG_DEFAULTS = {
+    "asr_server": "http://localhost:8000",
+    "monitor_device": MonitorAudioSource.DEFAULT_DEVICE or "",
+    "direction": "en→zh",
+}
+
+
+def load_config() -> dict:
+    """讀取 ~/.config/realtime-subtitle/config.json，不存在回傳預設值。"""
+    import json
+    try:
+        with open(_CONFIG_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return {**_CONFIG_DEFAULTS, **data}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return dict(_CONFIG_DEFAULTS)
+
+
+def save_config(settings: dict) -> None:
+    """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
+    import json
+    os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
+    keys = ["asr_server", "monitor_device", "direction"]
+    with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
 
