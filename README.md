@@ -6,8 +6,9 @@
 
 - 即時語音辨識（透過遠端 Qwen3-ASR 伺服器）
 - 自動翻譯（OpenAI GPT-4o mini）
-- 透明浮動字幕視窗，可拖拉、可縮放
+- 透明浮動字幕視窗，可拖拉、可縮放（Linux：GTK3 真透明；Windows：tkinter）
 - 支援系統播放音擷取（monitor）及麥克風（mic）兩種音源
+- **圖形化啟動設定對話框**，免 CLI 參數即可設定（設定自動儲存）
 
 ---
 
@@ -71,10 +72,21 @@ python subtitle_client.py --openai-api-key sk-...
 
 ## 執行
 
-```powershell
-# 基本執行（monitor 模式，自動偵測預設輸出裝置）
-python subtitle_client.py --asr-server http://<SERVER_IP>:8000
+### 方法 A：圖形設定對話框（推薦）
 
+不帶任何參數啟動，程式會自動彈出設定視窗，填入後即可開始：
+
+```powershell
+python subtitle_client.py
+```
+
+設定（ASR 伺服器位址、音訊裝置、翻譯方向）會自動儲存，下次啟動時自動帶入。
+
+### 方法 B：CLI 參數直接啟動
+
+提供任一核心參數（`--asr-server`、`--monitor-device`、`--source`、`--direction`）即跳過對話框：
+
+```powershell
 # 查詢可用 WASAPI 裝置（用於 --monitor-device 指定）
 python subtitle_client.py --list-devices
 
@@ -96,7 +108,7 @@ python subtitle_client.py --asr-server http://<SERVER_IP>:8000 --direction zh→
 |------|------|
 | 滑鼠移到視窗頂部 | 顯示工具列 |
 | 拖拉頂部拖拉條 | 移動視窗位置 |
-| 拖拉右下角三角形 | 調整視窗大小 |
+| 拖拉右下角三角形或四邊/四角 | 調整視窗大小 |
 | 工具列「EN→ZH ⇄」按鈕 | 切換翻譯方向 |
 | 工具列「🎤 MIC / 🔊 MON」按鈕 | 切換音源（麥克風/系統音） |
 | 工具列「✕」或 `Esc` | 關閉 |
@@ -142,7 +154,20 @@ pactl list sources short | grep monitor
 
 執行：
 
+### 方法 A：圖形設定對話框（推薦）
+
 ```bash
+DISPLAY=:1 OPENAI_API_KEY=sk-... .venv/bin/python subtitle_client.py
+```
+
+### 方法 B：CLI 直接啟動
+
+```bash
+# 查詢可用 monitor source
+.venv/bin/python subtitle_client.py --list-devices
+
 .venv/bin/python subtitle_client.py --asr-server http://<SERVER_IP>:8000 \
   --monitor-device alsa_output.pci-0000_00_1f.3.iec958-stereo.monitor
 ```
+
+> `DISPLAY` 視環境而定（本機為 `:1`）。

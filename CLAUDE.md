@@ -18,23 +18,33 @@ pip install sounddevice numpy scipy requests openai onnxruntime opencc-python-re
 ## Running the Service (Linux)
 
 ```bash
+# === Recommended: GUI setup dialog (no CLI args needed) ===
+DISPLAY=:1 OPENAI_API_KEY=sk-... .venv/bin/python subtitle_client.py
+
+# Background with log (GUI dialog still appears)
+DISPLAY=:1 OPENAI_API_KEY=sk-... .venv/bin/python subtitle_client.py \
+  >> /tmp/subtitle.log 2>&1 &
+
+# === CLI mode: skip dialog by providing any core arg ===
 # List available monitor sources first
 DISPLAY=:1 .venv/bin/python subtitle_client.py --list-devices
 
-# Start (monitor = system audio capture via PulseAudio)
+# Start directly
 DISPLAY=:1 OPENAI_API_KEY=sk-... .venv/bin/python subtitle_client.py \
   --asr-server http://localhost:8000 \
   --source monitor \
-  --monitor-device <pactl-source-name>
-
-# Background with log
-DISPLAY=:1 OPENAI_API_KEY=sk-... .venv/bin/python subtitle_client.py \
-  --asr-server http://localhost:8000 --source monitor \
-  --monitor-device alsa_output.usb-Huawei_HUAWEI_USB-C_HEADSET-00.analog-stereo.monitor \
+  --monitor-device alsa_output.usb-Synaptics_HUAWEI_USB-C_HEADSET_0296B2981911266789828239907F1-00.analog-stereo.monitor \
   >> /tmp/subtitle.log 2>&1 &
 ```
 
 `DISPLAY` must be `:1` on this machine (not `:0`).
+
+### Setup dialog skip logic
+
+The GUI setup dialog is shown on startup **unless** any of these CLI flags are present:
+`--asr-server`, `--monitor-device`, `--source`, `--direction`
+
+Settings chosen in the dialog are persisted to `~/.config/realtime-subtitle/config.json` and pre-filled on next launch.
 
 ## Architecture
 
@@ -73,10 +83,22 @@ AudioSource  →  on_chunk()  →  _vad_q
 
 ### GUI classes
 
-Both classes expose the same public interface: `set_text()`, `update_direction_label()`, `update_source_label()`, `run()`.
+Both overlay classes expose the same public interface: `set_text()`, `update_direction_label()`, `update_source_label()`, `run()`.
 
 - **`SubtitleOverlay`** — tkinter, Windows/fallback Linux. Uses `-transparentcolor` on Windows; `-type splash` + `-alpha` on Linux (semi-transparent whole window).
 - **`SubtitleOverlayGTK`** — GTK3 + Cairo, Linux only (used when `_GTK3_AVAILABLE=True`). `Gtk.WindowType.POPUP` with RGBA visual + `OPERATOR_CLEAR` → fully transparent background, only text and drag bar are visible. Toolbar drawn in Cairo, button hit-testing done manually via `_btn_rects`.
+
+### Setup dialog classes
+
+Shown on startup when no CLI core args are provided. Both expose `.run() → dict | None`.
+
+- **`SetupDialogGTK`** — GTK3, Linux (preferred when `_GTK3_AVAILABLE=True`).
+- **`SetupDialogTk`** — tkinter, Windows/fallback Linux.
+- **`show_setup_dialog(config)`** — dispatcher that picks the right class based on platform.
+
+### Config persistence
+
+`load_config()` / `save_config()` read and write `~/.config/realtime-subtitle/config.json`. Stores: `asr_server`, `monitor_device`, `direction`.
 
 ### Audio sources
 
@@ -101,6 +123,7 @@ HTTP POST to `<base_url>/api/transcribe` with raw float32 PCM bytes (`Content-Ty
 
 | File | Purpose |
 |------|---------|
-| `subtitle_client.py` | Entire application (~1500 lines) |
+| `subtitle_client.py` | Entire application (~1600 lines) |
 | `silero_vad_v6.onnx` | Silero VAD v6 model (required at runtime) |
 | `.venv/lib/.../system-gi.pth` | Lets venv access system PyGObject/GTK3 |
+| `~/.config/realtime-subtitle/config.json` | Persisted user settings (auto-created) |
