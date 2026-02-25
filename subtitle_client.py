@@ -1438,6 +1438,77 @@ def _list_audio_devices_for_dialog() -> list[str]:
     return devices
 
 
+class SetupDialogGTK:
+    """GTK3 啟動設定對話框（Linux）。"""
+
+    def __init__(self, config: dict):
+        self._result: dict | None = None
+        self._config = config
+
+    def run(self) -> dict | None:
+        """顯示對話框，回傳設定 dict 或 None（取消）。"""
+        win = Gtk.Dialog(title="Real-time Subtitle — 設定", flags=0)
+        win.set_default_size(420, 1)
+        win.set_border_width(16)
+        win.add_button("取消", Gtk.ResponseType.CANCEL)
+        win.add_button("開始字幕", Gtk.ResponseType.OK)
+        win.set_default_response(Gtk.ResponseType.OK)
+
+        box = win.get_content_area()
+        box.set_spacing(12)
+
+        # ASR Server URL
+        box.add(Gtk.Label(label="ASR Server URL", xalign=0))
+        url_entry = Gtk.Entry()
+        url_entry.set_text(self._config.get("asr_server", "http://localhost:8000"))
+        url_entry.set_activates_default(True)
+        box.add(url_entry)
+
+        # 音訊來源
+        box.add(Gtk.Label(label="音訊來源", xalign=0))
+        devices = _list_audio_devices_for_dialog()
+        combo = Gtk.ComboBoxText.new_with_entry()
+        saved_device = self._config.get("monitor_device", "")
+        inserted_saved = False
+        for i, d in enumerate(devices):
+            combo.append_text(d)
+            if d == saved_device:
+                combo.set_active(i)
+                inserted_saved = True
+        if not inserted_saved and saved_device:
+            combo.get_child().set_text(saved_device)
+        elif not inserted_saved and devices:
+            combo.set_active(0)
+
+        box.add(combo)
+
+        # 翻譯方向
+        box.add(Gtk.Label(label="翻譯方向", xalign=0))
+        dir_box = Gtk.Box(spacing=16)
+        rb_en_zh = Gtk.RadioButton.new_with_label(None, "en→zh")
+        rb_zh_en = Gtk.RadioButton.new_with_label_from_widget(rb_en_zh, "zh→en")
+        if self._config.get("direction") == "zh→en":
+            rb_zh_en.set_active(True)
+        else:
+            rb_en_zh.set_active(True)
+        dir_box.add(rb_en_zh)
+        dir_box.add(rb_zh_en)
+        box.add(dir_box)
+
+        win.show_all()
+        response = win.run()
+
+        if response == Gtk.ResponseType.OK:
+            device_text = combo.get_child().get_text().strip()
+            self._result = {
+                "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
+                "monitor_device": device_text,
+                "direction": "zh→en" if rb_zh_en.get_active() else "en→zh",
+            }
+        win.destroy()
+        return self._result
+
+
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
