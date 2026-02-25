@@ -261,9 +261,10 @@ class SubtitleOverlay:
     EN_FONT = ("Noto Sans TC SemiBold", 15)
     ZH_FONT = ("Noto Sans TC SemiBold", 24)  # 開源繁中字體
 
-    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None):
+    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
+        self._on_open_settings = on_open_settings
 
         self._root = tk.Tk()
 
@@ -358,6 +359,7 @@ class SubtitleOverlay:
         _make_btn(toolbar, textvariable=self._src_btn_var, command=self._switch_source)
 
         _make_btn(toolbar, text="✕", command=self._do_close, side="right")
+        _make_btn(toolbar, text="⚙", command=self._open_settings, side="right")
 
         self._toolbar_hide_id = None
 
@@ -540,6 +542,10 @@ class SubtitleOverlay:
         if self._on_switch_source:
             self._on_switch_source()
 
+    def _open_settings(self):
+        if self._on_open_settings:
+            self._on_open_settings()
+
     def update_source_label(self, source: str):
         label = "🎤 Mic" if source == "mic" else "🔊 Monitor"
         self._root.after(0, lambda: self._src_btn_var.set(label))
@@ -606,9 +612,10 @@ class SubtitleOverlayGTK:
     CORNER_SIZE = 20
     EDGE_SIZE = 6
 
-    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None):
+    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
+        self._on_open_settings = on_open_settings
         self._en_str = ""
         self._zh_str = ""
         self._direction_label = "EN→ZH ⇄"
@@ -737,6 +744,7 @@ class SubtitleOverlayGTK:
 
         draw_btn(f"[{self._direction_label}]", 10,      "direction")
         draw_btn(f"[{self._source_label}]",    155,     "source")
+        draw_btn("⚙",                           win_w - 55, "settings")
         draw_btn("✕",                           win_w - 25, "close")
 
     # ── Resize zone ──────────────────────────────────────────────────────────
@@ -858,6 +866,8 @@ class SubtitleOverlayGTK:
                         self._da.queue_draw()
                     elif key == "source" and self._on_switch_source:
                         self._on_switch_source()
+                    elif key == "settings" and self._on_open_settings:
+                        self._on_open_settings()
                     return
 
         # 拖拉
@@ -1432,6 +1442,10 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 if cmd == "toggle":
                     new_dir = debouncer.toggle_direction()
                     text_q.put({"direction": new_dir})
+                elif isinstance(cmd, str) and cmd.startswith("set_direction:"):
+                    new_dir = cmd.split(":", 1)[1]
+                    debouncer.set_direction(new_dir)
+                    text_q.put({"direction": new_dir})
                 elif cmd == "switch_source":
                     audio_source.stop()
                     if isinstance(audio_source, MonitorAudioSource):
@@ -1627,14 +1641,24 @@ class SetupDialogTk:
             return self._run_ctk()
         return self._run_tk()
 
+    def run_as_toplevel(self, parent) -> dict | None:
+        """覆疊視窗執行中時，以 Toplevel 模式開啟（不建立新的 mainloop）。"""
+        if _CTK_AVAILABLE:
+            return self._run_ctk(parent=parent)
+        return self._run_tk(parent=parent)
+
     # ------------------------------------------------------------------
     # CustomTkinter 版本
     # ------------------------------------------------------------------
-    def _run_ctk(self) -> dict | None:
+    def _run_ctk(self, parent=None) -> dict | None:
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        root = ctk.CTk()
+        if parent is not None:
+            root = ctk.CTkToplevel(parent)
+            root.attributes("-topmost", True)
+        else:
+            root = ctk.CTk()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
         root.geometry("460x510")
@@ -1751,14 +1775,21 @@ class SetupDialogTk:
 
         root.bind("<Return>", lambda e: on_ok())
         root.protocol("WM_DELETE_WINDOW", on_cancel)
-        root.mainloop()
+        if parent is not None:
+            parent.wait_window(root)
+        else:
+            root.mainloop()
         return self._result
 
     # ------------------------------------------------------------------
     # 純 tkinter fallback
     # ------------------------------------------------------------------
-    def _run_tk(self) -> dict | None:
-        root = tk.Tk()
+    def _run_tk(self, parent=None) -> dict | None:
+        if parent is not None:
+            root = tk.Toplevel(parent)
+            root.attributes("-topmost", True)
+        else:
+            root = tk.Tk()
         root.title("Real-time Subtitle — 設定")
         root.resizable(False, False)
         root.grab_set()
@@ -1810,7 +1841,10 @@ class SetupDialogTk:
         tk.Button(btn_frame, text="開始字幕", width=10, command=on_ok, default="active").pack(side="left", padx=4)
         root.bind("<Return>", lambda e: on_ok())
         root.protocol("WM_DELETE_WINDOW", on_cancel)
-        root.mainloop()
+        if parent is not None:
+            parent.wait_window(root)
+        else:
+            root.mainloop()
         return self._result
 
 
@@ -1912,21 +1946,50 @@ def main() -> None:
     def on_switch_source() -> None:
         cmd_q.put("switch_source")
 
+    # current_config 供設定 dialog 預填
+    _current_config = {
+        "asr_server": args.asr_server,
+        "monitor_device": args.monitor_device,
+        "direction": args.direction,
+        "openai_api_key": args.openai_api_key,
+    }
+
     # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
     log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
     use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
+
+    def on_open_settings() -> None:
+        if use_gtk:
+            new_settings = SetupDialogGTK(_current_config).run()
+        else:
+            new_settings = SetupDialogTk(_current_config).run_as_toplevel(overlay._root)
+        if new_settings is None:
+            return
+        save_config(new_settings)
+        _current_config.update(new_settings)
+        # 立即套用語言方向
+        new_dir = new_settings.get("direction", current_direction[0])
+        if new_dir != current_direction[0]:
+            current_direction[0] = new_dir
+            cmd_q.put(f"set_direction:{new_dir}")
+            overlay.update_direction_label(new_dir)
+        # API key 更新（worker 重啟前生效）
+        if new_settings.get("openai_api_key"):
+            args.openai_api_key = new_settings["openai_api_key"]
     try:
         if use_gtk:
             overlay = SubtitleOverlayGTK(
                 screen_index=args.screen,
                 on_toggle_direction=on_toggle,
                 on_switch_source=on_switch_source,
+                on_open_settings=on_open_settings,
             )
         else:
             overlay = SubtitleOverlay(
                 screen_index=args.screen,
                 on_toggle_direction=on_toggle,
                 on_switch_source=on_switch_source,
+                on_open_settings=on_open_settings,
             )
     except Exception:
         log.exception("建立覆疊視窗失敗")
