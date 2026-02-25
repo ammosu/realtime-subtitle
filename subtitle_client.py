@@ -24,6 +24,18 @@ import numpy as np
 import requests
 import scipy.signal as signal
 import tkinter as tk
+if sys.platform == "win32":
+    try:
+        import ctypes
+        _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansTC-SemiBold.ttf")
+        ctypes.windll.gdi32.AddFontResourceExW(_FONT_PATH, 0x10, 0)
+    except Exception:
+        pass
+try:
+    import customtkinter as ctk
+    _CTK_AVAILABLE = True
+except ImportError:
+    _CTK_AVAILABLE = False
 from openai import OpenAI
 
 # GTK3 透明覆疊（Linux）
@@ -199,22 +211,24 @@ class SubtitleOverlay:
         overlay.run()  # 阻塞，在主執行緒呼叫
     """
 
-    TOOLBAR_HEIGHT = 28
-    DRAG_BAR_HEIGHT = 14
-    WINDOW_HEIGHT = 160          # DRAG_BAR_HEIGHT + 146 (字幕區)
+    TOOLBAR_HEIGHT = 32
+    DRAG_BAR_HEIGHT = 6
+    WINDOW_HEIGHT = 150
     WINDOW_WIDTH = 900           # 預設值，__init__ 會依螢幕動態覆蓋
     CORNER_SIZE = 20
     EDGE_SIZE = 6
-    TOOLBAR_BG = "#222222"
-    DRAG_BAR_COLOR = "#2a2a2a"   # 深灰，非純黑（不會被 transparentcolor 穿透）
-    BTN_COLOR = "#ffffff"
-    BTN_BG = "#333333"
+    TOOLBAR_BG = "#12122a"       # 深藍
+    DRAG_BAR_COLOR = "#1e1e3e"   # 深藍灰，非純黑（不會被 transparentcolor 穿透）
+    BTN_COLOR = "#c5d8f8"        # 淡藍白
+    BTN_BG = "#1a1a38"
+    BTN_HOVER = "#2e2e58"
     BG_COLOR = "#000000"
-    EN_COLOR = "#dddddd"
+    TEXT_BG_COLOR = "#0d0d0d"    # 近黑但非純黑，作為字幕底板
+    EN_COLOR = "#e0e0e0"         # 淡灰英文
     ZH_COLOR = "#ffffff"
-    SHADOW_COLOR = "#111111"
-    EN_FONT = ("Arial", 15)
-    ZH_FONT = ("Microsoft JhengHei", 22, "bold")  # Windows 繁中字體
+    OUTLINE_COLOR = "#060606"    # 近黑描邊
+    EN_FONT = ("Noto Sans TC SemiBold", 15)
+    ZH_FONT = ("Noto Sans TC SemiBold", 24)  # 開源繁中字體
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None):
         self._on_toggle_direction = on_toggle_direction
@@ -254,6 +268,10 @@ class SubtitleOverlay:
         )
         drag_bar.pack(fill="x", side="top")
         drag_bar.pack_propagate(False)
+        # 中心 grip 點
+        grip = tk.Frame(drag_bar, bg="#3a3a70", width=32, height=2)
+        grip.place(relx=0.5, rely=0.5, anchor="center")
+        grip.lower()
         self._drag_bar = drag_bar
         # 拖拉條：中間拖拉，左右角落縮放
         drag_bar.bind("<Motion>", self._on_bar_motion)
@@ -279,40 +297,36 @@ class SubtitleOverlay:
         toolbar.place_forget()
         self._toolbar = toolbar
 
-        self._dir_btn_var = tk.StringVar(value="[EN→ZH ⇄]")
-        tk.Button(
-            toolbar,
-            textvariable=self._dir_btn_var,
-            font=("Arial", 10),
-            fg=self.BTN_COLOR,
-            bg=self.BTN_BG,
-            relief="flat",
-            padx=8,
-            command=self._toggle_direction,
-        ).pack(side="left", padx=4, pady=2)
+        def _make_btn(parent, textvariable=None, text=None, command=None, side="left"):
+            btn = tk.Button(
+                parent,
+                textvariable=textvariable,
+                text=text,
+                font=("Segoe UI", 10),
+                fg=self.BTN_COLOR,
+                bg=self.BTN_BG,
+                activeforeground="#ffffff",
+                activebackground=self.BTN_HOVER,
+                relief="flat",
+                bd=0,
+                padx=10,
+                pady=2,
+                cursor="hand2",
+                command=command,
+            )
+            btn.bind("<Enter>", lambda e, b=btn: (b.config(bg=self.BTN_HOVER), self._show_toolbar()))
+            btn.bind("<Leave>", lambda e, b=btn: (b.config(bg=self.BTN_BG), self._hide_toolbar()))
+            btn.bind("<ButtonPress-1>", lambda e: self._show_toolbar())
+            btn.pack(side=side, padx=3, pady=3)
+            return btn
 
-        self._src_btn_var = tk.StringVar(value="[🔊 MON]")
-        tk.Button(
-            toolbar,
-            textvariable=self._src_btn_var,
-            font=("Arial", 10),
-            fg=self.BTN_COLOR,
-            bg=self.BTN_BG,
-            relief="flat",
-            padx=8,
-            command=self._switch_source,
-        ).pack(side="left", padx=4, pady=2)
+        self._dir_btn_var = tk.StringVar(value="EN→ZH  ⇄")
+        _make_btn(toolbar, textvariable=self._dir_btn_var, command=self._toggle_direction)
 
-        tk.Button(
-            toolbar,
-            text="✕",
-            font=("Arial", 10),
-            fg=self.BTN_COLOR,
-            bg=self.BTN_BG,
-            relief="flat",
-            padx=8,
-            command=self._do_close,
-        ).pack(side="right", padx=4, pady=2)
+        self._src_btn_var = tk.StringVar(value="🔊 Monitor")
+        _make_btn(toolbar, textvariable=self._src_btn_var, command=self._switch_source)
+
+        _make_btn(toolbar, text="✕", command=self._do_close, side="right")
 
         self._toolbar_hide_id = None
 
@@ -424,6 +438,9 @@ class SubtitleOverlay:
 
     def _on_bar_press(self, event):
         """拖拉條/工具列：頂部邊緣縮放、角落縮放，中間拖拉。"""
+        # 若事件來自子元件（按鈕等），忽略，避免誤觸 resize/drag
+        if event.widget not in (self._drag_bar, self._toolbar):
+            return
         bar_w = self._root.winfo_width()
         s, e = self.CORNER_SIZE, self.EDGE_SIZE
         if event.y < e:
@@ -485,7 +502,7 @@ class SubtitleOverlay:
             self.update_direction_label(new_dir)
 
     def update_direction_label(self, direction: str):
-        label = f"[{direction} ⇄]"
+        label = f"{direction}  ⇄"
         self._root.after(0, lambda: self._dir_btn_var.set(label))
 
     def _switch_source(self):
@@ -493,7 +510,7 @@ class SubtitleOverlay:
             self._on_switch_source()
 
     def update_source_label(self, source: str):
-        label = "[🎤 MIC]" if source == "mic" else "[🔊 MON]"
+        label = "🎤 Mic" if source == "mic" else "🔊 Monitor"
         self._root.after(0, lambda: self._src_btn_var.set(label))
 
     def set_text(self, original: str = "", translated: str = ""):
@@ -505,24 +522,30 @@ class SubtitleOverlay:
         self._root.after(0, _update)
 
     def _redraw_text(self):
-        """Clear canvas and re-draw subtitle text with shadow."""
+        """Clear canvas and re-draw subtitle text with background pill and outline."""
         self._canvas.delete("text")
 
         w = self._canvas.winfo_width() or self._root.winfo_width()
-        wrap_w = max(200, w - 40)   # ensure positive wrap width
+        h = self._canvas.winfo_height() or self._root.winfo_height()
+        wrap_w = max(200, w - 60)
 
-        # EN line — 20px from left, 12px from top of canvas area
-        ex, ey = 20, 12
-        self._canvas.create_text(ex+2, ey+2, text=self._en_str, fill=self.SHADOW_COLOR,
-                                 font=self.EN_FONT, anchor="nw", width=wrap_w, tags="text")
-        self._canvas.create_text(ex,   ey,   text=self._en_str, fill=self.EN_COLOR,
+        ex, ey = 24, 14
+
+        # EN — 4方向描邊 + 主色
+        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            self._canvas.create_text(ex+ox, ey+oy, text=self._en_str,
+                                     fill=self.OUTLINE_COLOR, font=self.EN_FONT,
+                                     anchor="nw", width=wrap_w, tags="text")
+        self._canvas.create_text(ex, ey, text=self._en_str, fill=self.EN_COLOR,
                                  font=self.EN_FONT, anchor="nw", width=wrap_w, tags="text")
 
-        # ZH line — below EN (~30px gap covers Arial-15 line height)
-        zy = ey + 30
-        self._canvas.create_text(ex+2, zy+2, text=self._zh_str, fill=self.SHADOW_COLOR,
-                                 font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
-        self._canvas.create_text(ex,   zy,   text=self._zh_str, fill=self.ZH_COLOR,
+        # ZH — 4方向描邊 + 主色
+        zy = ey + 36
+        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            self._canvas.create_text(ex+ox, zy+oy, text=self._zh_str,
+                                     fill=self.OUTLINE_COLOR, font=self.ZH_FONT,
+                                     anchor="nw", width=wrap_w, tags="text")
+        self._canvas.create_text(ex, zy, text=self._zh_str, fill=self.ZH_COLOR,
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
 
     def run(self):
@@ -1538,13 +1561,114 @@ class SetupDialogGTK:
 
 
 class SetupDialogTk:
-    """tkinter 啟動設定對話框（Windows / GTK 不可用時）。"""
+    """tkinter 啟動設定對話框（Windows / GTK 不可用時）。
+    使用 CustomTkinter（若可用）以現代深色主題呈現。
+    """
 
     def __init__(self, config: dict):
         self._config = config
         self._result: dict | None = None
 
     def run(self) -> dict | None:
+        if _CTK_AVAILABLE:
+            return self._run_ctk()
+        return self._run_tk()
+
+    # ------------------------------------------------------------------
+    # CustomTkinter 版本
+    # ------------------------------------------------------------------
+    def _run_ctk(self) -> dict | None:
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+
+        root = ctk.CTk()
+        root.title("Real-time Subtitle")
+        root.resizable(False, False)
+        root.geometry("460x400")
+        root.grab_set()
+
+        _noto_sm = ctk.CTkFont(family="Noto Sans TC SemiBold", size=12)
+        _noto_md = ctk.CTkFont(family="Noto Sans TC SemiBold", size=14)
+        _noto_lg = ctk.CTkFont(family="Noto Sans TC SemiBold", size=18)
+
+        # ── 標題列 ─────────────────────────────────────────────────────
+        header = ctk.CTkFrame(root, fg_color=("#1a1a2e", "#1a1a2e"), corner_radius=0)
+        header.pack(fill="x")
+        ctk.CTkLabel(
+            header,
+            text="⚡  Real-time Subtitle",
+            font=_noto_lg,
+            text_color="#7eb8f7",
+        ).pack(pady=14, padx=20, anchor="w")
+
+        # ── 內容區 ─────────────────────────────────────────────────────
+        body = ctk.CTkFrame(root, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=24, pady=(16, 8))
+
+        # ASR Server URL
+        ctk.CTkLabel(body, text="ASR Server URL", font=_noto_sm,
+                     text_color="#9ca3af", anchor="w").pack(fill="x")
+        url_var = tk.StringVar(value=self._config.get("asr_server", "http://localhost:8000"))
+        ctk.CTkEntry(body, textvariable=url_var, height=36, font=_noto_sm,
+                     placeholder_text="http://localhost:8000").pack(fill="x", pady=(4, 14))
+
+        # 音訊來源
+        ctk.CTkLabel(body, text="音訊來源", font=_noto_sm,
+                     text_color="#9ca3af", anchor="w").pack(fill="x")
+        devices = _list_audio_devices_for_dialog()
+        saved = self._config.get("monitor_device", "")
+        initial = saved if saved in devices else (devices[0] if devices else saved)
+        device_var = tk.StringVar(value=initial)
+
+        if devices:
+            ctk.CTkOptionMenu(body, variable=device_var, values=devices,
+                              height=36, font=_noto_sm,
+                              dynamic_resizing=False).pack(fill="x", pady=(4, 14))
+        else:
+            ctk.CTkEntry(body, textvariable=device_var, height=36, font=_noto_sm,
+                         placeholder_text="裝置名稱或索引").pack(fill="x", pady=(4, 14))
+
+        # 翻譯方向
+        ctk.CTkLabel(body, text="翻譯方向", font=_noto_sm,
+                     text_color="#9ca3af", anchor="w").pack(fill="x")
+        dir_var = tk.StringVar(value=self._config.get("direction", "en→zh"))
+        seg = ctk.CTkSegmentedButton(body, values=["en→zh", "zh→en"],
+                                     variable=dir_var, height=34, font=_noto_sm)
+        seg.pack(fill="x", pady=(4, 0))
+
+        # ── 按鈕列 ─────────────────────────────────────────────────────
+        btn_frame = ctk.CTkFrame(root, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=24, pady=16)
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(1, weight=1)
+
+        def on_cancel():
+            root.destroy()
+
+        def on_ok():
+            self._result = {
+                "asr_server": url_var.get().strip() or "http://localhost:8000",
+                "monitor_device": device_var.get().strip(),
+                "direction": dir_var.get(),
+            }
+            root.destroy()
+
+        ctk.CTkButton(btn_frame, text="取消", fg_color="transparent",
+                      border_width=1, border_color="#374151",
+                      text_color="#9ca3af", hover_color="#1f2937",
+                      font=_noto_md, height=38, command=on_cancel).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ctk.CTkButton(btn_frame, text="開始字幕", font=_noto_md, height=38,
+                      command=on_ok).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+        root.bind("<Return>", lambda e: on_ok())
+        root.protocol("WM_DELETE_WINDOW", on_cancel)
+        root.mainloop()
+        return self._result
+
+    # ------------------------------------------------------------------
+    # 純 tkinter fallback
+    # ------------------------------------------------------------------
+    def _run_tk(self) -> dict | None:
         root = tk.Tk()
         root.title("Real-time Subtitle — 設定")
         root.resizable(False, False)
@@ -1590,7 +1714,6 @@ class SetupDialogTk:
         tk.Button(btn_frame, text="開始字幕", width=10, command=on_ok, default="active").pack(side="left", padx=4)
         root.bind("<Return>", lambda e: on_ok())
         root.protocol("WM_DELETE_WINDOW", on_cancel)
-
         root.mainloop()
         return self._result
 
