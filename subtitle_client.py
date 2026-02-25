@@ -9,6 +9,7 @@ Requirements:
     pip install sounddevice numpy scipy requests openai
 """
 import argparse
+import json
 import multiprocessing
 import os
 import queue
@@ -1393,7 +1394,6 @@ _CONFIG_DEFAULTS = {
 
 def load_config() -> dict:
     """讀取 ~/.config/realtime-subtitle/config.json，不存在回傳預設值。"""
-    import json
     try:
         with open(_CONFIG_PATH, encoding="utf-8") as f:
             data = json.load(f)
@@ -1404,7 +1404,6 @@ def load_config() -> dict:
 
 def save_config(settings: dict) -> None:
     """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
-    import json
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
     keys = ["asr_server", "monitor_device", "direction"]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
