@@ -576,9 +576,11 @@ class SubtitleOverlayGTK:
             self._win.set_visual(rgba)
         self._win.set_app_paintable(True)
 
-        # 視窗尺寸與位置（使用 monitor 0 的 geometry 避免 deprecated API）
-        monitor = screen.get_monitor_geometry(0)
-        sw, sh = monitor.width, monitor.height
+        # 視窗尺寸與位置
+        display = Gdk.Display.get_default()
+        mon = display.get_monitor(0)
+        geo = mon.get_geometry()
+        sw, sh = geo.width, geo.height
         ww = max(900, int(sw * 0.80))
         wh = self.WINDOW_HEIGHT
         self._win.set_default_size(ww, wh)
@@ -1212,8 +1214,8 @@ def _worker_main(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessing.Sim
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
     VAD_THRESHOLD = 0.5
-    RT_SILENCE_CHUNKS = 22        # 0.8s - 靜音後觸發轉錄（同 QwenASRMiniTool）
-    RT_MAX_BUFFER_CHUNKS = 277    # 10s  - 強制 flush（HTTP timeout 20s 限制，取一半）
+    RT_SILENCE_CHUNKS = 14        # 0.5s - 靜音後觸發轉錄
+    RT_MAX_BUFFER_CHUNKS = 138    # 5s   - 強制 flush（縮短延遲）
 
     # 載入 VAD 模型
     _vad_model_path = Path(__file__).parent / "silero_vad_v6.onnx"
