@@ -702,16 +702,18 @@ class SubtitleOverlayGTK:
         if y > h - e:     return "s"
         return None
 
-    _CURSORS = {
-        "nw": Gdk.CursorType.TOP_LEFT_CORNER,
-        "ne": Gdk.CursorType.TOP_RIGHT_CORNER,
-        "sw": Gdk.CursorType.BOTTOM_LEFT_CORNER,
-        "se": Gdk.CursorType.BOTTOM_RIGHT_CORNER,
-        "n":  Gdk.CursorType.TOP_SIDE,
-        "s":  Gdk.CursorType.BOTTOM_SIDE,
-        "e":  Gdk.CursorType.RIGHT_SIDE,
-        "w":  Gdk.CursorType.LEFT_SIDE,
-    }
+    @staticmethod
+    def _build_cursors():
+        return {
+            "nw": Gdk.CursorType.TOP_LEFT_CORNER,
+            "ne": Gdk.CursorType.TOP_RIGHT_CORNER,
+            "sw": Gdk.CursorType.BOTTOM_LEFT_CORNER,
+            "se": Gdk.CursorType.BOTTOM_RIGHT_CORNER,
+            "n":  Gdk.CursorType.TOP_SIDE,
+            "s":  Gdk.CursorType.BOTTOM_SIDE,
+            "e":  Gdk.CursorType.RIGHT_SIDE,
+            "w":  Gdk.CursorType.LEFT_SIDE,
+        }
 
     def _set_cursor(self, ct):
         gw = self._win.get_window()
@@ -740,7 +742,7 @@ class SubtitleOverlayGTK:
 
         zone = self._get_resize_zone(x, y)
         if zone:
-            self._set_cursor(self._CURSORS.get(zone))
+            self._set_cursor(self._build_cursors().get(zone))
         elif y < self.DRAG_BAR_HEIGHT:
             self._set_cursor(Gdk.CursorType.FLEUR)
         else:
@@ -1006,8 +1008,20 @@ class MonitorAudioSource(AudioSource):
         wasapi_info = self._pa.get_host_api_info_by_type(pyaudio.paWASAPI)
 
         if self._device is not None:
-            loopback_idx = int(self._device)
-            dev_info = self._pa.get_device_info_by_index(loopback_idx)
+            try:
+                loopback_idx = int(self._device)
+                dev_info = self._pa.get_device_info_by_index(loopback_idx)
+            except ValueError:
+                # device name string — search by name
+                loopback_idx = None
+                for i in range(self._pa.get_device_count()):
+                    dev = self._pa.get_device_info_by_index(i)
+                    if dev.get("isLoopbackDevice") and self._device in dev["name"]:
+                        loopback_idx = i
+                        dev_info = dev
+                        break
+                if loopback_idx is None:
+                    raise RuntimeError(f"找不到裝置名稱含 '{self._device}' 的 WASAPI Loopback 裝置")
         else:
             # 自動：找預設輸出裝置對應的 loopback 裝置
             default_out_idx = wasapi_info["defaultOutputDevice"]
@@ -1418,7 +1432,18 @@ def _list_audio_devices_for_dialog() -> list[str]:
     回傳空清單代表無法偵測（使用者手動填入）。
     """
     devices: list[str] = []
-    if sys.platform != "win32":
+    if sys.platform == "win32":
+        try:
+            import pyaudiowpatch as pyaudio
+            pa = pyaudio.PyAudio()
+            for i in range(pa.get_device_count()):
+                dev = pa.get_device_info_by_index(i)
+                if dev.get("isLoopbackDevice"):
+                    devices.append(dev["name"])
+            pa.terminate()
+        except Exception:
+            pass
+    else:
         try:
             result = subprocess.run(
                 ["pactl", "list", "sources", "short"],
