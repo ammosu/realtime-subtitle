@@ -54,6 +54,11 @@ try:
 except ImportError:
     _CTK_AVAILABLE = False
 from openai import OpenAI
+from languages import (
+    LANG_LABELS, LANG_NAME,
+    lang_code_to_label, lang_label_to_code,
+    parse_direction, swap_direction,
+)
 
 # GTK3 透明覆疊（Linux）
 _GTK3_AVAILABLE = False
@@ -159,9 +164,9 @@ class TranslationDebouncer:
         self._do_translate(text)
 
     def toggle_direction(self) -> str:
-        """切換翻譯方向，回傳新方向字串。"""
+        """交換來源/目標語言，回傳新方向字串。"""
         with self._lock:
-            self.direction = "zh→en" if self.direction == "en→zh" else "en→zh"
+            self.direction = swap_direction(self.direction)
             self._last_translated = ""  # 清空快取，強制重新翻譯
             return self.direction
 
@@ -178,7 +183,8 @@ class TranslationDebouncer:
             self._last_translated = text
             direction = self.direction  # snapshot
         # lock 釋放後才呼叫 OpenAI
-        if direction == "en→zh":
+        src, tgt = parse_direction(direction)
+        if src == "en" and tgt == "zh":
             system_msg = (
                 "你是即時字幕翻譯員。將英文語音轉錄翻譯成自然流暢的繁體中文（台灣口語用語）。"
                 "要求：\n"
@@ -187,11 +193,19 @@ class TranslationDebouncer:
                 "3. 專有名詞、人名、品牌可保留英文原文\n"
                 "4. 只輸出翻譯結果，不加任何解釋或標注"
             )
-        else:  # zh→en
+        elif src == "zh" and tgt == "en":
             system_msg = (
                 "You are a real-time subtitle translator. "
                 "Translate the Chinese speech transcript to natural, colloquial English. "
                 "Output ONLY the translation, no explanations."
+            )
+        else:
+            src_name = LANG_NAME.get(src, src)
+            tgt_name = LANG_NAME.get(tgt, tgt)
+            system_msg = (
+                f"You are a real-time subtitle translator. "
+                f"Translate the following {src_name} speech transcript to {tgt_name}. "
+                f"Keep it natural and concise. Output ONLY the translation, no explanations."
             )
         try:
             response = self.client.chat.completions.create(
@@ -1561,15 +1575,26 @@ class SetupDialogGTK:
 
         # 翻譯方向
         box.add(Gtk.Label(label="翻譯方向", xalign=0))
-        dir_box = Gtk.Box(spacing=16)
-        rb_en_zh = Gtk.RadioButton.new_with_label(None, "en→zh")
-        rb_zh_en = Gtk.RadioButton.new_with_label_from_widget(rb_en_zh, "zh→en")
-        if self._config.get("direction") == "zh→en":
-            rb_zh_en.set_active(True)
-        else:
-            rb_en_zh.set_active(True)
-        dir_box.add(rb_en_zh)
-        dir_box.add(rb_zh_en)
+        _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
+        dir_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        src_combo = Gtk.ComboBoxText()
+        tgt_combo = Gtk.ComboBoxText()
+        for i, lbl in enumerate(LANG_LABELS):
+            src_combo.append_text(lbl)
+            tgt_combo.append_text(lbl)
+            if lang_label_to_code(lbl) == _src0:
+                src_combo.set_active(i)
+            if lang_label_to_code(lbl) == _tgt0:
+                tgt_combo.set_active(i)
+        def _gtk_swap(_btn):
+            si, ti = src_combo.get_active(), tgt_combo.get_active()
+            src_combo.set_active(ti)
+            tgt_combo.set_active(si)
+        swap_btn = Gtk.Button(label="⇄")
+        swap_btn.connect("clicked", _gtk_swap)
+        dir_box.pack_start(src_combo, True, True, 0)
+        dir_box.pack_start(swap_btn, False, False, 0)
+        dir_box.pack_start(tgt_combo, True, True, 0)
         box.add(dir_box)
 
         win.show_all()
@@ -1577,10 +1602,12 @@ class SetupDialogGTK:
 
         if response == Gtk.ResponseType.OK:
             device_text = combo.get_child().get_text().strip()
+            _src_lbl = src_combo.get_active_text() or "en (English)"
+            _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
             self._result = {
                 "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
                 "monitor_device": device_text,
-                "direction": "zh→en" if rb_zh_en.get_active() else "en→zh",
+                "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
             }
         win.destroy()
         return self._result
@@ -1668,10 +1695,27 @@ class SetupDialogTk:
         # 翻譯方向
         ctk.CTkLabel(body, text="翻譯方向", font=_noto_sm,
                      text_color="#9ca3af", anchor="w").pack(fill="x")
-        dir_var = tk.StringVar(value=self._config.get("direction", "en→zh"))
-        seg = ctk.CTkSegmentedButton(body, values=["en→zh", "zh→en"],
-                                     variable=dir_var, height=34, font=_noto_sm)
-        seg.pack(fill="x", pady=(4, 0))
+        _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
+        src_var = tk.StringVar(value=lang_code_to_label(_src0))
+        tgt_var = tk.StringVar(value=lang_code_to_label(_tgt0))
+        dir_row = ctk.CTkFrame(body, fg_color="transparent")
+        dir_row.pack(fill="x", pady=(4, 0))
+        dir_row.columnconfigure(0, weight=1)
+        dir_row.columnconfigure(2, weight=1)
+        ctk.CTkOptionMenu(dir_row, variable=src_var, values=LANG_LABELS,
+                          height=34, font=_noto_sm,
+                          dynamic_resizing=False).grid(row=0, column=0, sticky="ew")
+        def _swap():
+            s, t = src_var.get(), tgt_var.get()
+            src_var.set(t)
+            tgt_var.set(s)
+        ctk.CTkButton(dir_row, text="⇄", width=40, height=34,
+                      fg_color="#1a1a38", hover_color="#2e2e58",
+                      text_color="#7eb8f7", font=_noto_sm,
+                      command=_swap).grid(row=0, column=1, padx=6)
+        ctk.CTkOptionMenu(dir_row, variable=tgt_var, values=LANG_LABELS,
+                          height=34, font=_noto_sm,
+                          dynamic_resizing=False).grid(row=0, column=2, sticky="ew")
 
         # ── 按鈕列 ─────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(root, fg_color="transparent")
@@ -1693,7 +1737,7 @@ class SetupDialogTk:
             self._result = {
                 "asr_server": url_var.get().strip() or "http://localhost:8000",
                 "monitor_device": device_var.get().strip(),
-                "direction": dir_var.get(),
+                "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
                 "openai_api_key": api_key,
             }
             root.destroy()
@@ -1735,11 +1779,18 @@ class SetupDialogTk:
         combo.pack(fill="x", **pad)
 
         tk.Label(root, text="翻譯方向", anchor="w").pack(fill="x", **pad)
-        dir_var = tk.StringVar(value=self._config.get("direction", "en→zh"))
+        _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
+        src_var = tk.StringVar(value=lang_code_to_label(_src0))
+        tgt_var = tk.StringVar(value=lang_code_to_label(_tgt0))
         dir_frame = tk.Frame(root)
         dir_frame.pack(**pad)
-        tk.Radiobutton(dir_frame, text="en→zh", variable=dir_var, value="en→zh").pack(side="left")
-        tk.Radiobutton(dir_frame, text="zh→en", variable=dir_var, value="zh→en").pack(side="left")
+        tk.OptionMenu(dir_frame, src_var, *LANG_LABELS).pack(side="left")
+        def _tk_swap():
+            s, t = src_var.get(), tgt_var.get()
+            src_var.set(t)
+            tgt_var.set(s)
+        tk.Button(dir_frame, text="⇄", command=_tk_swap).pack(side="left", padx=4)
+        tk.OptionMenu(dir_frame, tgt_var, *LANG_LABELS).pack(side="left")
 
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=12)
@@ -1748,7 +1799,7 @@ class SetupDialogTk:
             self._result = {
                 "asr_server": url_var.get().strip() or "http://localhost:8000",
                 "monitor_device": device_var.get().strip(),
-                "direction": dir_var.get(),
+                "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
             }
             root.destroy()
 
@@ -1800,8 +1851,8 @@ def main() -> None:
                              "用 --list-devices 查詢可用裝置")
     parser.add_argument("--mic-device", default=None,
                         help="麥克風裝置名稱或索引（None = 系統預設麥克風）")
-    parser.add_argument("--direction", choices=["en→zh", "zh→en"], default="en→zh",
-                        help="Initial translation direction")
+    parser.add_argument("--direction", default="en→zh",
+                        help="Initial translation direction, e.g. en→zh, zh→en, ja→en")
     args = parser.parse_args()
 
     # CLI 是否已明確指定核心設定（可略過對話框）
@@ -1854,7 +1905,7 @@ def main() -> None:
     current_direction = [args.direction]
 
     def on_toggle() -> str:
-        current_direction[0] = "zh→en" if current_direction[0] == "en→zh" else "en→zh"
+        current_direction[0] = swap_direction(current_direction[0])
         cmd_q.put("toggle")
         return current_direction[0]
 
