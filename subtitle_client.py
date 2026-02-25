@@ -1431,10 +1431,13 @@ def _list_audio_devices_for_dialog() -> list[str]:
         except Exception:
             pass
     if not devices:
-        import sounddevice as sd
-        for d in sd.query_devices():
-            if d.get("max_input_channels", 0) > 0:
-                devices.append(d["name"])
+        try:
+            import sounddevice as sd
+            for d in sd.query_devices():
+                if d.get("max_input_channels", 0) > 0:
+                    devices.append(d["name"])
+        except Exception:
+            pass
     return devices
 
 
@@ -1611,7 +1614,8 @@ def main() -> None:
     _has_cli_config = (
         "--asr-server" in _cli_args or
         "--monitor-device" in _cli_args or
-        "--source" in _cli_args
+        "--source" in _cli_args or
+        "--direction" in _cli_args
     )
 
     if not _has_cli_config and not args.list_devices:
