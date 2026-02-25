@@ -1509,6 +1509,64 @@ class SetupDialogGTK:
         return self._result
 
 
+class SetupDialogTk:
+    """tkinter 啟動設定對話框（Windows / GTK 不可用時）。"""
+
+    def __init__(self, config: dict):
+        self._config = config
+        self._result: dict | None = None
+
+    def run(self) -> dict | None:
+        root = tk.Tk()
+        root.title("Real-time Subtitle — 設定")
+        root.resizable(False, False)
+        root.grab_set()
+
+        pad = {"padx": 12, "pady": 4}
+
+        tk.Label(root, text="ASR Server URL", anchor="w").pack(fill="x", **pad)
+        url_var = tk.StringVar(value=self._config.get("asr_server", "http://localhost:8000"))
+        tk.Entry(root, textvariable=url_var, width=48).pack(**pad)
+
+        tk.Label(root, text="音訊來源", anchor="w").pack(fill="x", **pad)
+        devices = _list_audio_devices_for_dialog()
+        device_var = tk.StringVar()
+        saved = self._config.get("monitor_device", "")
+        initial = saved if saved in devices else (devices[0] if devices else saved)
+        device_var.set(initial)
+        combo = tk.OptionMenu(root, device_var, *devices) if devices else tk.Entry(root, textvariable=device_var, width=48)
+        combo.pack(fill="x", **pad)
+
+        tk.Label(root, text="翻譯方向", anchor="w").pack(fill="x", **pad)
+        dir_var = tk.StringVar(value=self._config.get("direction", "en→zh"))
+        dir_frame = tk.Frame(root)
+        dir_frame.pack(**pad)
+        tk.Radiobutton(dir_frame, text="en→zh", variable=dir_var, value="en→zh").pack(side="left")
+        tk.Radiobutton(dir_frame, text="zh→en", variable=dir_var, value="zh→en").pack(side="left")
+
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(pady=12)
+
+        def on_ok():
+            self._result = {
+                "asr_server": url_var.get().strip() or "http://localhost:8000",
+                "monitor_device": device_var.get().strip(),
+                "direction": dir_var.get(),
+            }
+            root.destroy()
+
+        def on_cancel():
+            root.destroy()
+
+        tk.Button(btn_frame, text="取消", width=10, command=on_cancel).pack(side="left", padx=4)
+        tk.Button(btn_frame, text="開始字幕", width=10, command=on_ok, default="active").pack(side="left", padx=4)
+        root.bind("<Return>", lambda e: on_ok())
+        root.protocol("WM_DELETE_WINDOW", on_cancel)
+
+        root.mainloop()
+        return self._result
+
+
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
