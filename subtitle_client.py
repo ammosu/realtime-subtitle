@@ -1568,6 +1568,17 @@ class SetupDialogTk:
 
 
 # ---------------------------------------------------------------------------
+# Setup Dialog Dispatcher
+# ---------------------------------------------------------------------------
+
+def show_setup_dialog(config: dict) -> dict | None:
+    """選擇正確的對話框實作並顯示，回傳設定 dict 或 None（取消）。"""
+    if _GTK3_AVAILABLE and sys.platform != "win32":
+        return SetupDialogGTK(config).run()
+    return SetupDialogTk(config).run()
+
+
+# ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
 
@@ -1594,6 +1605,26 @@ def main() -> None:
     parser.add_argument("--direction", choices=["en→zh", "zh→en"], default="en→zh",
                         help="Initial translation direction")
     args = parser.parse_args()
+
+    # CLI 是否已明確指定核心設定（可略過對話框）
+    _cli_args = sys.argv[1:]
+    _has_cli_config = (
+        "--asr-server" in _cli_args or
+        "--monitor-device" in _cli_args or
+        "--source" in _cli_args
+    )
+
+    if not _has_cli_config and not args.list_devices:
+        _file_config = load_config()
+        _settings = show_setup_dialog(_file_config)
+        if _settings is None:
+            return  # 使用者取消
+        save_config(_settings)
+        # 把對話框結果回填進 args（後續程式碼繼續用 args.xxx）
+        args.asr_server = _settings["asr_server"]
+        args.monitor_device = _settings["monitor_device"]
+        args.direction = _settings["direction"]
+        args.source = "monitor"   # 對話框目前只支援 monitor
 
     if args.list_devices:
         AudioSource.list_devices()
