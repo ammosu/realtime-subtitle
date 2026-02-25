@@ -42,6 +42,7 @@ exe = EXE(
     console=False,          # 不顯示黑色 console 視窗
     disable_windowed_traceback=False,
     argv_emulation=False,
+    contents_directory=".",  # 所有 DLL/資源與 exe 同層，避免 _internal 路徑問題
     icon=None,
 )
 

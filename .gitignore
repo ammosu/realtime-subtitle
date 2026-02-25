@@ -6,3 +6,6 @@ venv/
 .env
 build/
 dist/
+installer_output/
+subtitle.log
+.claude/

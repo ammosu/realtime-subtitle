@@ -10,6 +10,7 @@ Requirements:
 """
 import argparse
 import json
+import logging
 import multiprocessing
 import os
 import queue
@@ -19,6 +20,22 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Callable
+
+# ---------------------------------------------------------------------------
+# Logging：主程序 + worker process 都寫到同一個 log 檔
+# ---------------------------------------------------------------------------
+_LOG_DIR = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else os.path.dirname(os.path.abspath(__file__))
+_LOG_PATH = os.path.join(_LOG_DIR, "subtitle.log")
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(processName)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.FileHandler(_LOG_PATH, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+log = logging.getLogger(__name__)
 
 import numpy as np
 import requests
@@ -1221,6 +1238,13 @@ def _worker_main(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessing.Sim
                 靜音 ~0.8s 後把完整語音放入 _speech_q
     - asr_loop：等待 _speech_q，送到 ASR server，更新字幕
     """
+    try:
+        _worker_main_impl(text_q, cmd_q, cfg)
+    except Exception:
+        log.exception("[Worker] 未預期的例外，worker 終止")
+
+
+def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessing.SimpleQueue, cfg: dict) -> None:
     import onnxruntime as ort
     from pathlib import Path
     import opencc
@@ -1255,8 +1279,9 @@ def _worker_main(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessing.Sim
     RT_SILENCE_CHUNKS = 14        # 0.5s - 靜音後觸發轉錄
     RT_MAX_BUFFER_CHUNKS = 138    # 5s   - 強制 flush（縮短延遲）
 
-    # 載入 VAD 模型
-    _vad_model_path = Path(__file__).parent / "silero_vad_v6.onnx"
+    # 載入 VAD 模型（打包後 worker spawn 中 __file__ 不可靠，改用 sys.executable）
+    _base_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    _vad_model_path = _base_dir / "silero_vad_v6.onnx"
     vad_sess = ort.InferenceSession(str(_vad_model_path))
 
     _vad_q: queue.Queue = queue.Queue()
@@ -1426,6 +1451,7 @@ _CONFIG_DEFAULTS = {
     "asr_server": "http://localhost:8000",
     "monitor_device": MonitorAudioSource.DEFAULT_DEVICE or "",
     "direction": "en→zh",
+    "openai_api_key": "",
 }
 
 
@@ -1442,7 +1468,7 @@ def load_config() -> dict:
 def save_config(settings: dict) -> None:
     """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
-    keys = ["asr_server", "monitor_device", "direction"]
+    keys = ["asr_server", "monitor_device", "direction", "openai_api_key"]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
 
@@ -1584,7 +1610,7 @@ class SetupDialogTk:
         root = ctk.CTk()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
-        root.geometry("460x400")
+        root.geometry("460x510")
         root.grab_set()
 
         _noto_sm = ctk.CTkFont(family="Noto Sans TC SemiBold", size=12)
@@ -1604,6 +1630,17 @@ class SetupDialogTk:
         # ── 內容區 ─────────────────────────────────────────────────────
         body = ctk.CTkFrame(root, fg_color="transparent")
         body.pack(fill="both", expand=True, padx=24, pady=(16, 8))
+
+        # OpenAI API Key（優先讀 config，其次環境變數）
+        _existing_key = (
+            self._config.get("openai_api_key", "")
+            or os.environ.get("OPENAI_API_KEY", "")
+        )
+        ctk.CTkLabel(body, text="OpenAI API Key", font=_noto_sm,
+                     text_color="#9ca3af", anchor="w").pack(fill="x")
+        key_var = tk.StringVar(value=_existing_key)
+        ctk.CTkEntry(body, textvariable=key_var, height=36, font=_noto_sm,
+                     placeholder_text="sk-...", show="•").pack(fill="x", pady=(4, 14))
 
         # ASR Server URL
         ctk.CTkLabel(body, text="ASR Server URL", font=_noto_sm,
@@ -1645,11 +1682,19 @@ class SetupDialogTk:
         def on_cancel():
             root.destroy()
 
+        _warn_label = ctk.CTkLabel(body, text="", font=_noto_sm, text_color="#f87171")
+        _warn_label.pack(fill="x")
+
         def on_ok():
+            api_key = key_var.get().strip()
+            if not api_key:
+                _warn_label.configure(text="⚠ 請填入 OpenAI API Key")
+                return
             self._result = {
                 "asr_server": url_var.get().strip() or "http://localhost:8000",
                 "monitor_device": device_var.get().strip(),
                 "direction": dir_var.get(),
+                "openai_api_key": api_key,
             }
             root.destroy()
 
@@ -1734,6 +1779,8 @@ def show_setup_dialog(config: dict) -> dict | None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    log.info("=== Real-time Subtitle 啟動 (pid=%d) ===", os.getpid())
+    log.info("Log 檔位置: %s", _LOG_PATH)
     parser = argparse.ArgumentParser(description="Real-time subtitle overlay")
     parser.add_argument("--asr-server", default="http://localhost:8000",
                         help="Qwen3-ASR streaming server URL")
@@ -1777,13 +1824,16 @@ def main() -> None:
         args.monitor_device = _settings["monitor_device"]
         args.direction = _settings["direction"]
         args.source = "monitor"   # 對話框目前只支援 monitor
+        # dialog 填入的 key 優先，其次是 CLI/環境變數
+        if _settings.get("openai_api_key"):
+            args.openai_api_key = _settings["openai_api_key"]
 
     if args.list_devices:
         AudioSource.list_devices()
         return
 
     if not args.openai_api_key:
-        print("Error: --openai-api-key 或 OPENAI_API_KEY 環境變數必須設定")
+        log.error("OpenAI API Key 未設定，請在設定介面填入或設定 OPENAI_API_KEY 環境變數")
         return
 
     cfg = {
@@ -1812,20 +1862,26 @@ def main() -> None:
         cmd_q.put("switch_source")
 
     # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
+    log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
     use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
-    if use_gtk:
-        overlay = SubtitleOverlayGTK(
-            screen_index=args.screen,
-            on_toggle_direction=on_toggle,
-            on_switch_source=on_switch_source,
-        )
-    else:
-        overlay = SubtitleOverlay(
-            screen_index=args.screen,
-            on_toggle_direction=on_toggle,
-            on_switch_source=on_switch_source,
-        )
+    try:
+        if use_gtk:
+            overlay = SubtitleOverlayGTK(
+                screen_index=args.screen,
+                on_toggle_direction=on_toggle,
+                on_switch_source=on_switch_source,
+            )
+        else:
+            overlay = SubtitleOverlay(
+                screen_index=args.screen,
+                on_toggle_direction=on_toggle,
+                on_switch_source=on_switch_source,
+            )
+    except Exception:
+        log.exception("建立覆疊視窗失敗")
+        return
     overlay.update_direction_label(args.direction)
+    log.info("覆疊視窗建立成功")
 
     # 覆疊視窗初始化後才 fork worker（child 不使用 X11/GTK）
     worker = multiprocessing.Process(
