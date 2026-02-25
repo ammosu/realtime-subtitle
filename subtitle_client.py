@@ -1410,6 +1410,34 @@ def save_config(settings: dict) -> None:
         json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
 
 
+def _list_audio_devices_for_dialog() -> list[str]:
+    """
+    回傳可用於下拉選單的音訊裝置名稱清單。
+    Linux：pactl 列出 monitor source，失敗則 fallback sounddevice。
+    Windows：sounddevice 列出輸入裝置。
+    回傳空清單代表無法偵測（使用者手動填入）。
+    """
+    devices: list[str] = []
+    if sys.platform != "win32":
+        try:
+            result = subprocess.run(
+                ["pactl", "list", "sources", "short"],
+                capture_output=True, text=True, timeout=3,
+            )
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 2 and "monitor" in parts[1].lower():
+                    devices.append(parts[1])
+        except Exception:
+            pass
+    if not devices:
+        import sounddevice as sd
+        for d in sd.query_devices():
+            if d.get("max_input_channels", 0) > 0:
+                devices.append(d["name"])
+    return devices
+
+
 # ---------------------------------------------------------------------------
 # Main Entry Point
 # ---------------------------------------------------------------------------
