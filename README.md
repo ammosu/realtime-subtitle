@@ -119,16 +119,30 @@ python subtitle_client.py --asr-server http://<SERVER_IP>:8000 --direction zh→
 
 ## Linux 安裝步驟
 
+> **注意**：`requirements.txt` 中的 `pyaudiowpatch` 是 Windows 專用套件，在 Linux 上無法安裝。請勿直接執行 `pip install -r requirements.txt`，改用以下方式建置環境。
+
+### 1. 建立虛擬環境（建議）
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. 安裝 Linux 相容套件
+
 ```bash
 pip install sounddevice numpy scipy requests openai onnxruntime opencc-python-reimplemented
+```
 
-# 確認 PulseAudio/PipeWire 正常運作
+### 3. 確認 Monitor 音源
+
+```bash
 pactl list sources short | grep monitor
 ```
 
 執行：
 
 ```bash
-python subtitle_client.py --asr-server http://<SERVER_IP>:8000 \
+.venv/bin/python subtitle_client.py --asr-server http://<SERVER_IP>:8000 \
   --monitor-device alsa_output.pci-0000_00_1f.3.iec958-stereo.monitor
 ```

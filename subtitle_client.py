@@ -45,7 +45,7 @@ class ASRClient:
             f"{self.base_url}/api/transcribe",
             data=audio_float32.tobytes(),
             headers={"Content-Type": "application/octet-stream"},
-            timeout=20,
+            timeout=45,
         )
         r.raise_for_status()
         return r.json()
@@ -189,7 +189,8 @@ class SubtitleOverlay:
     DRAG_BAR_HEIGHT = 14
     WINDOW_HEIGHT = 160          # DRAG_BAR_HEIGHT + 146 (字幕區)
     WINDOW_WIDTH = 900           # 預設值，__init__ 會依螢幕動態覆蓋
-    RESIZE_SIZE = 28
+    CORNER_SIZE = 20
+    EDGE_SIZE = 6
     TOOLBAR_BG = "#222222"
     DRAG_BAR_COLOR = "#2a2a2a"   # 深灰，非純黑（不會被 transparentcolor 穿透）
     BTN_COLOR = "#ffffff"
@@ -221,7 +222,7 @@ class SubtitleOverlay:
         if sys.platform == "win32":
             self._root.wm_attributes("-transparentcolor", self.BG_COLOR)
         else:
-            self._root.wm_attributes("-alpha", 0.85)
+            self._root.wm_attributes("-alpha", 0.35)
         self._root.configure(bg=self.BG_COLOR)
         self._root.geometry(
             f"{self._win_w}x{self._win_h}+{self._x}+{self._y}"
@@ -232,12 +233,14 @@ class SubtitleOverlay:
             self._root,
             bg=self.DRAG_BAR_COLOR,
             height=self.DRAG_BAR_HEIGHT,
-            cursor="fleur",          # 十字箭頭游標，提示可拖拉
+            cursor="",
         )
         drag_bar.pack(fill="x", side="top")
         drag_bar.pack_propagate(False)
-        # 拖拉綁定在拖拉條上，不影響字幕區
-        drag_bar.bind("<ButtonPress-1>", self._start_drag)
+        self._drag_bar = drag_bar
+        # 拖拉條：中間拖拉，左右角落縮放
+        drag_bar.bind("<Motion>", self._on_bar_motion)
+        drag_bar.bind("<ButtonPress-1>", self._on_bar_press)
         drag_bar.bind("<B1-Motion>", self._do_drag)
 
         # ── Canvas (created after drag bar, fills remaining space) ──
@@ -249,8 +252,9 @@ class SubtitleOverlay:
         self._canvas.pack(fill="both", expand=True)
         self._canvas.bind("<Configure>", lambda e: self._redraw_text())
 
-        # 按下時記錄起始狀態，motion/release 改綁到 root（拖出三角形後仍持續追蹤）
-        self._canvas.tag_bind("resize_handle", "<ButtonPress-1>", self._start_resize)
+        # 四角縮放：motion 偵測游標位置，press 開始縮放
+        self._canvas.bind("<Motion>", self._on_canvas_motion)
+        self._canvas.bind("<ButtonPress-1>", self._on_canvas_press)
 
         # ── 工具列 (created after canvas so it has higher z-order) ──
         toolbar = tk.Frame(self._root, bg=self.TOOLBAR_BG, height=self.TOOLBAR_HEIGHT)
@@ -301,14 +305,15 @@ class SubtitleOverlay:
         drag_bar.bind("<Leave>", self._hide_toolbar)
         self._toolbar.bind("<Enter>", self._show_toolbar)
         self._toolbar.bind("<Leave>", self._hide_toolbar)
-        self._toolbar.bind("<ButtonPress-1>", self._start_drag)
+        self._toolbar.bind("<Motion>", self._on_bar_motion)
+        self._toolbar.bind("<ButtonPress-1>", self._on_bar_press)
         self._toolbar.bind("<B1-Motion>", self._do_drag)
 
         self._en_str = ""
         self._zh_str = ""
         self._drag_x = 0
         self._drag_y = 0
-        self._resize_start = None   # (mouse_x, mouse_y, win_w, win_h)
+        self._resize_start = None   # (mouse_x, mouse_y, win_w, win_h, win_x, win_y, corner)
 
         self._root.bind("<Escape>", lambda e: self._do_close())
         self._root.bind("<F9>", lambda e: self._toggle_direction())
@@ -339,42 +344,104 @@ class SubtitleOverlay:
         ny = event.y_root - self._drag_y
         self._root.geometry(f"+{nx}+{ny}")
 
-    def _draw_resize_handle(self):
-        """Draw a small triangle at bottom-right of canvas for resizing."""
-        self._canvas.delete("resize_handle")
+    _RESIZE_CURSORS = {
+        "nw": "top_left_corner",  "ne": "top_right_corner",
+        "sw": "bottom_left_corner", "se": "bottom_right_corner",
+        "n": "sb_v_double_arrow", "s": "sb_v_double_arrow",
+        "e": "sb_h_double_arrow", "w": "sb_h_double_arrow",
+    }
+
+    def _get_resize_zone(self, x: int, y: int):
+        """Return resize zone ('nw','ne','sw','se','n','s','e','w') or None."""
         w = self._canvas.winfo_width() or self._root.winfo_width()
         h = self._canvas.winfo_height() or self._root.winfo_height()
-        s = self.RESIZE_SIZE
-        self._canvas.create_polygon(
-            w, h - s,
-            w - s, h,
-            w, h,
-            fill="#aaaaaa", outline="", tags="resize_handle",
-        )
-        self._canvas.tag_bind("resize_handle", "<Enter>",
-                              lambda e: self._canvas.configure(cursor="sizing"))
-        self._canvas.tag_bind("resize_handle", "<Leave>",
-                              lambda e: self._canvas.configure(cursor=""))
+        s, e = self.CORNER_SIZE, self.EDGE_SIZE
+        in_l, in_r = x < s, x > w - s
+        in_t, in_b = y < s, y > h - s
+        if in_l and in_t:  return "nw"
+        if in_r and in_t:  return "ne"
+        if in_l and in_b:  return "sw"
+        if in_r and in_b:  return "se"
+        if x < e:          return "w"
+        if x > w - e:      return "e"
+        if y < e:          return "n"
+        if y > h - e:      return "s"
+        return None
 
-    def _start_resize(self, event):
+    def _on_canvas_motion(self, event):
+        zone = self._get_resize_zone(event.x, event.y)
+        self._canvas.configure(cursor=self._RESIZE_CURSORS.get(zone, ""))
+
+    def _on_canvas_press(self, event):
+        zone = self._get_resize_zone(event.x, event.y)
+        if zone:
+            self._start_resize(event, zone)
+            return "break"
+
+    def _on_bar_motion(self, event):
+        """拖拉條/工具列：頂部邊緣垂直縮放、左右角落對角縮放，中間無游標。"""
+        bar_w = self._root.winfo_width()
+        s, e = self.CORNER_SIZE, self.EDGE_SIZE
+        if event.y < e:
+            event.widget.configure(cursor="sb_v_double_arrow")
+        elif event.x < s:
+            event.widget.configure(cursor="top_left_corner")
+        elif event.x > bar_w - s:
+            event.widget.configure(cursor="top_right_corner")
+        else:
+            event.widget.configure(cursor="")
+
+    def _on_bar_press(self, event):
+        """拖拉條/工具列：頂部邊緣縮放、角落縮放，中間拖拉。"""
+        bar_w = self._root.winfo_width()
+        s, e = self.CORNER_SIZE, self.EDGE_SIZE
+        if event.y < e:
+            self._start_resize(event, "n")
+        elif event.x < s:
+            self._start_resize(event, "nw")
+        elif event.x > bar_w - s:
+            self._start_resize(event, "ne")
+        else:
+            self._start_drag(event)
+
+    def _start_resize(self, event, corner: str):
         self._resize_start = (
             event.x_root, event.y_root,
             self._root.winfo_width(), self._root.winfo_height(),
+            self._root.winfo_x(), self._root.winfo_y(),
+            corner,
         )
-        # 綁到 root，拖出三角形範圍後仍可持續縮放
         self._root.bind("<B1-Motion>",       self._do_resize)
         self._root.bind("<ButtonRelease-1>", self._stop_resize)
-        return "break"
 
     def _do_resize(self, event):
         if not self._resize_start:
             return
-        mx0, my0, w0, h0 = self._resize_start
-        new_w = max(300, w0 + event.x_root - mx0)
-        new_h = max(80,  h0 + event.y_root - my0)
-        x = self._root.winfo_x()
-        y = self._root.winfo_y()
-        self._root.geometry(f"{new_w}x{new_h}+{x}+{y}")
+        mx0, my0, w0, h0, wx0, wy0, corner = self._resize_start
+        dx = event.x_root - mx0
+        dy = event.y_root - my0
+        if corner == "se":
+            new_w, new_h = max(300, w0 + dx), max(80, h0 + dy)
+            self._root.geometry(f"{new_w}x{new_h}+{wx0}+{wy0}")
+        elif corner == "sw":
+            new_w, new_h = max(300, w0 - dx), max(80, h0 + dy)
+            self._root.geometry(f"{new_w}x{new_h}+{wx0 + w0 - new_w}+{wy0}")
+        elif corner == "ne":
+            new_w, new_h = max(300, w0 + dx), max(80, h0 - dy)
+            self._root.geometry(f"{new_w}x{new_h}+{wx0}+{wy0 + h0 - new_h}")
+        elif corner == "nw":
+            new_w, new_h = max(300, w0 - dx), max(80, h0 - dy)
+            self._root.geometry(f"{new_w}x{new_h}+{wx0 + w0 - new_w}+{wy0 + h0 - new_h}")
+        elif corner == "e":
+            self._root.geometry(f"{max(300, w0 + dx)}x{h0}+{wx0}+{wy0}")
+        elif corner == "w":
+            new_w = max(300, w0 - dx)
+            self._root.geometry(f"{new_w}x{h0}+{wx0 + w0 - new_w}+{wy0}")
+        elif corner == "s":
+            self._root.geometry(f"{w0}x{max(80, h0 + dy)}+{wx0}+{wy0}")
+        elif corner == "n":
+            new_h = max(80, h0 - dy)
+            self._root.geometry(f"{w0}x{new_h}+{wx0}+{wy0 + h0 - new_h}")
 
     def _stop_resize(self, event):
         self._resize_start = None
@@ -426,8 +493,6 @@ class SubtitleOverlay:
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
         self._canvas.create_text(ex,   zy,   text=self._zh_str, fill=self.ZH_COLOR,
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
-
-        self._draw_resize_handle()
 
     def run(self):
         """啟動 tkinter mainloop（阻塞，必須在主執行緒呼叫）。"""
@@ -1027,14 +1092,22 @@ def main() -> None:
                 )
         overlay._root.after(50, poll)
 
-    overlay._root.after(50, poll)
-    overlay.run()  # blocking，直到視窗關閉
+    def _cleanup():
+        cmd_q.put("stop")
+        worker.join(timeout=3)
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=1)
 
-    # 視窗關閉後停止 worker
-    cmd_q.put("stop")
-    worker.join(timeout=3)
-    if worker.is_alive():
-        worker.terminate()
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: (_cleanup(), sys.exit(0)))
+    signal.signal(signal.SIGINT,  lambda *_: (_cleanup(), sys.exit(0)))
+
+    overlay._root.after(50, poll)
+    try:
+        overlay.run()  # blocking，直到視窗關閉
+    finally:
+        _cleanup()
 
 
 if __name__ == "__main__":
