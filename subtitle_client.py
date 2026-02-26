@@ -15,21 +15,16 @@ import os
 import signal
 import sys
 
-from constants import TARGET_SR, CHUNK_SAMPLES, _LOG_PATH
-from asr import ASRClient, TranslationDebouncer
-from audio import AudioSource, MonitorAudioSource, MicrophoneAudioSource
+from constants import _LOG_PATH
+from audio import AudioSource, MonitorAudioSource
 from worker import _worker_main
-from config import load_config, save_config, _list_audio_devices_for_dialog
+from config import load_config, save_config
 from ui import _GTK3_AVAILABLE
 from ui.overlay_gtk import SubtitleOverlayGTK
 from ui.overlay_tk import SubtitleOverlay
 from ui.dialog_gtk import SetupDialogGTK
 from ui.dialog_tk import SetupDialogTk
-from languages import (
-    LANG_LABELS, LANG_NAME,
-    lang_code_to_label, lang_label_to_code,
-    parse_direction, swap_direction,
-)
+from languages import swap_direction
 
 if _GTK3_AVAILABLE:
     from gi.repository import GLib
