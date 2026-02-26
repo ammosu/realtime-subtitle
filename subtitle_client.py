@@ -1562,6 +1562,19 @@ class SetupDialogGTK:
         box = win.get_content_area()
         box.set_spacing(12)
 
+        # OpenAI API Key
+        box.add(Gtk.Label(label="OpenAI API Key", xalign=0))
+        key_entry = Gtk.Entry()
+        key_entry.set_visibility(False)
+        key_entry.set_placeholder_text("sk-...")
+        _existing_key = (
+            self._config.get("openai_api_key", "")
+            or os.environ.get("OPENAI_API_KEY", "")
+        )
+        key_entry.set_text(_existing_key)
+        key_entry.set_activates_default(True)
+        box.add(key_entry)
+
         # ASR Server URL
         box.add(Gtk.Label(label="ASR Server URL", xalign=0))
         url_entry = Gtk.Entry()
@@ -1611,10 +1624,19 @@ class SetupDialogGTK:
         dir_box.pack_start(tgt_combo, True, True, 0)
         box.add(dir_box)
 
-        win.show_all()
-        response = win.run()
+        warn_label = Gtk.Label(label="", xalign=0)
+        warn_label.set_markup("")
+        box.add(warn_label)
 
-        if response == Gtk.ResponseType.OK:
+        win.show_all()
+
+        while True:
+            response = win.run()
+            if response != Gtk.ResponseType.OK:
+                break
+            if not key_entry.get_text().strip():
+                warn_label.set_markup('<span color="red">⚠ 請填入 OpenAI API Key</span>')
+                continue
             device_text = combo.get_child().get_text().strip()
             _src_lbl = src_combo.get_active_text() or "en (English)"
             _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
@@ -1622,7 +1644,10 @@ class SetupDialogGTK:
                 "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
                 "monitor_device": device_text,
                 "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
+                "openai_api_key": key_entry.get_text().strip(),
             }
+            break
+
         win.destroy()
         return self._result
 
