@@ -7,6 +7,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 
 import numpy as np
 
@@ -74,6 +75,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     VAD_THRESHOLD = 0.5
     RT_SILENCE_CHUNKS = 14        # 0.5s - 靜音後觸發轉錄
     RT_MAX_BUFFER_CHUNKS = 222    # 8s   - 強制 flush（縮短延遲）
+    VAD_PAD_CHUNKS = 3            # ~108ms - 語音開始前補入的預滾音訊
 
     # 載入 VAD 模型（打包後 worker spawn 中 __file__ 不可靠，改用 sys.executable）
     _base_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
@@ -100,6 +102,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         h = np.zeros((1, 1, 128), dtype=np.float32)
         c = np.zeros((1, 1, 128), dtype=np.float32)
         buf: list[np.ndarray] = []
+        pre_buf: deque = deque(maxlen=VAD_PAD_CHUNKS)  # 語音開始前的預滾緩衝
         sil_cnt = 0
         leftover = np.zeros(0, dtype=np.float32)
 
@@ -125,26 +128,35 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                     prob = float(prob.flatten()[0])
 
                     if prob >= VAD_THRESHOLD:
+                        if not buf:
+                            # 語音剛開始：把預滾緩衝補入，保留字音開頭
+                            buf.extend(pre_buf)
+                            pre_buf.clear()
                         buf.append(chunk)
                         sil_cnt = 0
                     elif buf:
                         buf.append(chunk)
                         sil_cnt += 1
                         if sil_cnt >= RT_SILENCE_CHUNKS:
-                            # 靜音 0.8s：送出整段語音，保留 h/c 以免下句開頭被漏偵測
+                            # 靜音 0.5s：送出整段語音，保留 h/c 以免下句開頭被漏偵測
                             seg = np.concatenate(buf)
                             print(f"[VAD] flush silence {len(seg)/TARGET_SR:.2f}s", flush=True)
                             _speech_q.put(seg)
                             buf = []
                             sil_cnt = 0
+                            pre_buf.clear()
+                    else:
+                        # 尚未偵測到語音：維持滾動預滾緩衝
+                        pre_buf.append(chunk)
 
-                    # Max buffer 10s：強制送出，保留 h/c
+                    # Max buffer 8s：強制送出，保留 h/c
                     if len(buf) >= RT_MAX_BUFFER_CHUNKS:
                         seg = np.concatenate(buf)
                         print(f"[VAD] flush max {len(seg)/TARGET_SR:.2f}s", flush=True)
                         _speech_q.put(seg)
                         buf = []
                         sil_cnt = 0
+                        pre_buf.clear()
 
         except Exception as e:
             print(f"[VAD fatal error] {e}", flush=True)
