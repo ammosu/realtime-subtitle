@@ -101,7 +101,8 @@ def main() -> None:
         args.asr_server = _settings["asr_server"]
         args.monitor_device = _settings["monitor_device"]
         args.direction = _settings["direction"]
-        args.source = "monitor"   # 對話框目前只支援 monitor
+        args.source = _settings.get("source", "monitor")
+        args.mic_device = _settings.get("mic_device", "")
         # dialog 填入的 key 優先，其次是 CLI/環境變數
         if _settings.get("openai_api_key"):
             args.openai_api_key = _settings["openai_api_key"]

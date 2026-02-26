@@ -14,7 +14,9 @@ _CONFIG_PATH = os.path.expanduser("~/.config/realtime-subtitle/config.json")
 
 _CONFIG_DEFAULTS = {
     "asr_server": "http://localhost:8000",
+    "source": "monitor",
     "monitor_device": MonitorAudioSource.DEFAULT_DEVICE or "",
+    "mic_device": "",
     "direction": "en→zh",
     "openai_api_key": "",
     "en_font_size": 15,
@@ -35,7 +37,7 @@ def load_config() -> dict:
 def save_config(settings: dict) -> None:
     """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
-    keys = ["asr_server", "monitor_device", "direction", "openai_api_key", "en_font_size", "zh_font_size"]
+    keys = ["asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key", "en_font_size", "zh_font_size"]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
 
@@ -69,6 +71,31 @@ def _list_audio_devices_for_dialog() -> list[str]:
                 parts = line.split()
                 if len(parts) >= 2 and "monitor" in parts[1].lower():
                     devices.append(parts[1])
+        except Exception:
+            pass
+    if not devices:
+        try:
+            import sounddevice as sd
+            for d in sd.query_devices():
+                if d.get("max_input_channels", 0) > 0:
+                    devices.append(d["name"])
+        except Exception:
+            pass
+    return devices
+
+
+def _list_mic_devices_for_dialog() -> list[str]:
+    """回傳可用麥克風裝置名稱清單（排除 loopback）。"""
+    devices: list[str] = []
+    if sys.platform == "win32":
+        try:
+            import pyaudiowpatch as pyaudio
+            pa = pyaudio.PyAudio()
+            for i in range(pa.get_device_count()):
+                dev = pa.get_device_info_by_index(i)
+                if dev.get("maxInputChannels", 0) > 0 and not dev.get("isLoopbackDevice"):
+                    devices.append(dev["name"])
+            pa.terminate()
         except Exception:
             pass
     if not devices:

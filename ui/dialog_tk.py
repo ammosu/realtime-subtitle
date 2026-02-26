@@ -11,7 +11,7 @@ try:
 except ImportError:
     _CTK_AVAILABLE = False
 
-from config import _list_audio_devices_for_dialog
+from config import _list_audio_devices_for_dialog, _list_mic_devices_for_dialog
 from languages import LANG_LABELS, lang_code_to_label, lang_label_to_code, parse_direction
 
 log = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ class SetupDialogTk:
             root = ctk.CTk()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
-        root.geometry("460x550")
+        root.geometry("460x600")
         root.grab_set()
 
         _noto_sm = ctk.CTkFont(family="Noto Sans TC SemiBold", size=12)
@@ -93,18 +93,55 @@ class SetupDialogTk:
         # 音訊來源
         ctk.CTkLabel(body, text="音訊來源", font=_noto_sm,
                      text_color="#9ca3af", anchor="w").pack(fill="x")
-        devices = _list_audio_devices_for_dialog()
-        saved = self._config.get("monitor_device", "")
-        initial = saved if saved in devices else (devices[0] if devices else saved)
-        device_var = tk.StringVar(value=initial)
 
-        if devices:
-            ctk.CTkOptionMenu(body, variable=device_var, values=devices,
-                              height=36, font=_noto_sm,
-                              dynamic_resizing=False).pack(fill="x", pady=(4, 14))
+        _saved_source = self._config.get("source", "monitor")
+        source_var = tk.StringVar(value="🔊 系統音訊" if _saved_source == "monitor" else "🎤 麥克風")
+        ctk.CTkSegmentedButton(body, values=["🔊 系統音訊", "🎤 麥克風"],
+                               variable=source_var, font=_noto_sm,
+                               height=34).pack(fill="x", pady=(4, 8))
+
+        # 裝置選擇容器（固定位置，內部切換 monitor/mic）
+        device_container = ctk.CTkFrame(body, fg_color="transparent")
+        device_container.pack(fill="x", pady=(0, 14))
+
+        # 系統音訊裝置
+        monitor_devices = _list_audio_devices_for_dialog()
+        _saved_mon = self._config.get("monitor_device", "")
+        _mon_init = _saved_mon if _saved_mon in monitor_devices else (monitor_devices[0] if monitor_devices else _saved_mon)
+        monitor_device_var = tk.StringVar(value=_mon_init)
+        monitor_frame = ctk.CTkFrame(device_container, fg_color="transparent")
+        if monitor_devices:
+            ctk.CTkOptionMenu(monitor_frame, variable=monitor_device_var,
+                              values=monitor_devices, height=36, font=_noto_sm,
+                              dynamic_resizing=False).pack(fill="x")
         else:
-            ctk.CTkEntry(body, textvariable=device_var, height=36, font=_noto_sm,
-                         placeholder_text="裝置名稱或索引").pack(fill="x", pady=(4, 14))
+            ctk.CTkEntry(monitor_frame, textvariable=monitor_device_var, height=36,
+                         font=_noto_sm, placeholder_text="裝置名稱或索引").pack(fill="x")
+
+        # 麥克風裝置
+        mic_devices = _list_mic_devices_for_dialog()
+        _saved_mic = self._config.get("mic_device", "")
+        _mic_init = _saved_mic if _saved_mic in mic_devices else (mic_devices[0] if mic_devices else _saved_mic)
+        mic_device_var = tk.StringVar(value=_mic_init)
+        mic_frame = ctk.CTkFrame(device_container, fg_color="transparent")
+        if mic_devices:
+            ctk.CTkOptionMenu(mic_frame, variable=mic_device_var,
+                              values=mic_devices, height=36, font=_noto_sm,
+                              dynamic_resizing=False).pack(fill="x")
+        else:
+            ctk.CTkEntry(mic_frame, textvariable=mic_device_var, height=36,
+                         font=_noto_sm, placeholder_text="麥克風裝置名稱").pack(fill="x")
+
+        def _on_source_change(*_):
+            if source_var.get() == "🔊 系統音訊":
+                mic_frame.pack_forget()
+                monitor_frame.pack(fill="x")
+            else:
+                monitor_frame.pack_forget()
+                mic_frame.pack(fill="x")
+
+        source_var.trace_add("write", _on_source_change)
+        _on_source_change()  # 初始化顯示
 
         # 翻譯方向
         ctk.CTkLabel(body, text="翻譯方向", font=_noto_sm,
@@ -247,9 +284,12 @@ class SetupDialogTk:
             if not api_key:
                 _warn_label.configure(text="⚠ 請填入 OpenAI API Key")
                 return
+            _is_monitor = source_var.get() == "🔊 系統音訊"
             self._result = {
                 "asr_server": url_var.get().strip() or "http://localhost:8000",
-                "monitor_device": device_var.get().strip(),
+                "source": "monitor" if _is_monitor else "mic",
+                "monitor_device": monitor_device_var.get().strip(),
+                "mic_device": mic_device_var.get().strip(),
                 "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
                 "openai_api_key": api_key,
                 "en_font_size": en_size_var.get(),
