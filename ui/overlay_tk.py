@@ -38,6 +38,9 @@ class SubtitleOverlay:
     OUTLINE_COLOR = "#060606"    # 近黑描邊
     EN_FONT = ("Noto Sans TC SemiBold", 15)
     ZH_FONT = ("Noto Sans TC SemiBold", 24)  # 開源繁中字體
+    DISCLAIMER_TEXT = "安富財經科技 ｜ AI 即時辨識，內容僅供參考"
+    DISCLAIMER_COLOR = "#606060"
+    DISCLAIMER_FONT = ("Noto Sans TC SemiBold", 9)
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None):
         self._on_toggle_direction = on_toggle_direction
@@ -362,6 +365,16 @@ class SubtitleOverlay:
                                      anchor="nw", width=wrap_w, tags="text")
         self._canvas.create_text(ex, zy, text=self._zh_str, fill=self.ZH_COLOR,
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
+
+        # 免責聲明 — 右下角
+        dx, dy = w - 10, h - 6
+        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+            self._canvas.create_text(dx+ox, dy+oy, text=self.DISCLAIMER_TEXT,
+                                     fill=self.OUTLINE_COLOR, font=self.DISCLAIMER_FONT,
+                                     anchor="se", tags="text")
+        self._canvas.create_text(dx, dy, text=self.DISCLAIMER_TEXT,
+                                 fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
+                                 anchor="se", tags="text")
 
     def run(self):
         """啟動 tkinter mainloop（阻塞，必須在主執行緒呼叫）。"""
