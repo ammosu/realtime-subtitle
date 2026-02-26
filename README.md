@@ -27,7 +27,7 @@
 ### 3. 安裝 Python 套件
 
 ```powershell
-pip install sounddevice numpy scipy requests openai onnxruntime pyaudiowpatch opencc-python-reimplemented
+pip install sounddevice numpy scipy requests openai onnxruntime pyaudiowpatch opencc-python-reimplemented customtkinter
 ```
 
 > `pyaudiowpatch` 是 Windows WASAPI Loopback 音訊擷取的核心套件，用於擷取系統播放音。
@@ -41,11 +41,18 @@ pip install opencc-python-reimplemented
 
 ### 4. 準備必要檔案
 
-確認以下兩個檔案在同一目錄：
+確認以下檔案在同一目錄（含 `ui/` 子套件）：
 
 ```
 subtitle_client.py
-silero_vad_v6.onnx     ← VAD 模型，缺少則無法運作
+silero_vad_v6.onnx          ← VAD 模型，缺少則無法運作
+NotoSansTC-SemiBold.ttf     ← 字幕字體，缺少時退回系統預設字體
+ui/
+  __init__.py
+  overlay_tk.py
+  overlay_gtk.py
+  dialog_tk.py
+  dialog_gtk.py
 ```
 
 ### 5. 確認 ASR Server 可連線
@@ -60,13 +67,7 @@ curl http://<SERVER_IP>:8000/
 
 ### 6. 設定 OpenAI API Key
 
-```powershell
-# 方法 A：設定環境變數（推薦，不用每次帶參數）
-$env:OPENAI_API_KEY = "sk-..."
-
-# 方法 B：執行時直接帶參數
-python subtitle_client.py --openai-api-key sk-...
-```
+啟動後在圖形設定對話框中填入即可，設定會自動儲存到 `%APPDATA%/../.config/realtime-subtitle/config.json`，下次不需重新填寫。
 
 ---
 

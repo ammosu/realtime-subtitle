@@ -66,7 +66,7 @@ The application is split into focused modules under the repo root and a `ui/` su
 
 | Module | Responsibility |
 |--------|----------------|
-| `subtitle_client.py` | Entry point: `main()`, `show_setup_dialog()`, CLI argument parsing |
+| `subtitle_client.py` | Entry point: `main()`, `show_setup_dialog()`, CLI argument parsing; loads `NotoSansTC-SemiBold.ttf` into Windows GDI on startup |
 | `constants.py` | Shared constants (`TARGET_SR`, `CHUNK_SAMPLES`) and logging configuration |
 | `asr.py` | `ASRClient` (HTTP POST to ASR server) and `TranslationDebouncer` |
 | `audio.py` | `MonitorAudioSource`, `MicrophoneAudioSource`, device enumeration |
@@ -121,12 +121,12 @@ Both overlay classes expose the same public interface: `set_text()`, `update_dir
 Shown on startup when no CLI core args are provided. Both expose `.run() → dict | None`.
 
 - **`SetupDialogGTK`** — GTK3, Linux (preferred when `_GTK3_AVAILABLE=True`).
-- **`SetupDialogTk`** — tkinter, Windows/fallback Linux.
+- **`SetupDialogTk`** — Windows/fallback Linux. Uses CustomTkinter dark theme when available (`customtkinter` installed); falls back to plain tkinter.
 - **`show_setup_dialog(config)`** — dispatcher that picks the right class based on platform.
 
 ### Config persistence
 
-`load_config()` / `save_config()` read and write `~/.config/realtime-subtitle/config.json`. Stores: `asr_server`, `monitor_device`, `direction`.
+`load_config()` / `save_config()` read and write `~/.config/realtime-subtitle/config.json`. Stores: `asr_server`, `monitor_device`, `direction`, `openai_api_key`.
 
 ### Audio sources
 
@@ -151,7 +151,7 @@ HTTP POST to `<base_url>/api/transcribe` with raw float32 PCM bytes (`Content-Ty
 
 | File | Purpose |
 |------|---------|
-| `subtitle_client.py` | 主程式進入點（`main()` + `show_setup_dialog()`，~280 行） |
+| `subtitle_client.py` | 主程式進入點（`main()` + `show_setup_dialog()`，Windows 字體載入，~290 行） |
 | `constants.py` | 共用常數：`TARGET_SR`, `CHUNK_SAMPLES`，logging 設定 |
 | `asr.py` | ASR HTTP client (`ASRClient`) 與翻譯 debouncer (`TranslationDebouncer`) |
 | `audio.py` | 音訊來源：`MonitorAudioSource`, `MicrophoneAudioSource` |
