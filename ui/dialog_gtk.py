@@ -65,7 +65,7 @@ class SetupDialogGTK:
         win.set_resizable(False)
 
         btn_cancel = win.add_button("取消", Gtk.ResponseType.CANCEL)
-        btn_ok = win.add_button("▶  開始字幕", Gtk.ResponseType.OK)
+        btn_ok = win.add_button("▶  啟動字幕辨識", Gtk.ResponseType.OK)
         btn_ok.get_style_context().add_class("suggested-action")
         win.set_default_response(Gtk.ResponseType.OK)
 

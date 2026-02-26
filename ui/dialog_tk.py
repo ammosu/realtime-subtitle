@@ -301,7 +301,7 @@ class SetupDialogTk:
                       border_width=1, border_color="#374151",
                       text_color="#9ca3af", hover_color="#1f2937",
                       font=_noto_md, height=38, command=on_cancel).grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ctk.CTkButton(btn_frame, text="開始字幕", font=_noto_md, height=38,
+        ctk.CTkButton(btn_frame, text="啟動字幕辨識", font=_noto_md, height=38,
                       command=on_ok).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
         root.bind("<Return>", lambda e: on_ok())
@@ -381,7 +381,7 @@ class SetupDialogTk:
             root.destroy()
 
         tk.Button(btn_frame, text="取消", width=10, command=on_cancel).pack(side="left", padx=4)
-        tk.Button(btn_frame, text="開始字幕", width=10, command=on_ok, default="active").pack(side="left", padx=4)
+        tk.Button(btn_frame, text="啟動字幕辨識", width=10, command=on_ok, default="active").pack(side="left", padx=4)
         root.bind("<Return>", lambda e: on_ok())
         root.protocol("WM_DELETE_WINDOW", on_cancel)
         if parent is not None:
