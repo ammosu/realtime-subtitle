@@ -210,7 +210,7 @@ def main() -> None:
         _last_translated[0] = ""
         overlay.set_text("", "")
         overlay.update_direction_label(current_direction[0])
-        overlay.update_source_label("monitor")
+        overlay.update_source_label(_current_config.get("source", "monitor"))
 
     try:
         if use_gtk:

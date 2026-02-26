@@ -5,9 +5,9 @@ import os
 import sys
 
 if sys.platform != "win32":
-    from gi.repository import Gtk, Gdk
+    from gi.repository import Gtk, Gdk, Pango
 
-from config import _list_audio_devices_for_dialog
+from config import _list_audio_devices_for_dialog, _list_mic_devices_for_dialog
 from languages import LANG_LABELS, lang_code_to_label, lang_label_to_code, parse_direction
 
 log = logging.getLogger(__name__)
@@ -113,22 +113,55 @@ class SetupDialogGTK:
         url_entry.set_activates_default(True)
         body.add(url_entry)
 
-        # 音訊來源
+        # 音訊來源：系統音訊 / 麥克風 切換
         _add_label("音訊來源")
-        devices = _list_audio_devices_for_dialog()
-        combo = Gtk.ComboBoxText.new_with_entry()
-        saved_device = self._config.get("monitor_device", "")
-        inserted_saved = False
-        for i, d in enumerate(devices):
-            combo.append_text(d)
-            if d == saved_device:
-                combo.set_active(i)
-                inserted_saved = True
-        if not inserted_saved and saved_device:
-            combo.get_child().set_text(saved_device)
-        elif not inserted_saved and devices:
-            combo.set_active(0)
-        body.add(combo)
+        _saved_source = self._config.get("source", "monitor")
+        source_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        rb_monitor = Gtk.RadioButton.new_with_label(None, "🔊 系統音訊")
+        rb_mic = Gtk.RadioButton.new_with_label_from_widget(rb_monitor, "🎤 麥克風")
+        if _saved_source == "mic":
+            rb_mic.set_active(True)
+        else:
+            rb_monitor.set_active(True)
+        source_box.pack_start(rb_monitor, False, False, 0)
+        source_box.pack_start(rb_mic, False, False, 0)
+        body.add(source_box)
+
+        # 裝置選擇：monitor / mic 各自一個 ComboBoxText，依切換顯示
+        def _make_device_combo(devices, saved_device):
+            c = Gtk.ComboBoxText.new_with_entry()
+            inserted = False
+            for i, d in enumerate(devices):
+                c.append_text(d)
+                if d == saved_device:
+                    c.set_active(i)
+                    inserted = True
+            if not inserted and saved_device:
+                c.get_child().set_text(saved_device)
+            elif not inserted and devices:
+                c.set_active(0)
+            return c
+
+        monitor_devices = _list_audio_devices_for_dialog()
+        mic_devices = _list_mic_devices_for_dialog()
+        monitor_combo = _make_device_combo(monitor_devices, self._config.get("monitor_device", ""))
+        mic_combo = _make_device_combo(mic_devices, self._config.get("mic_device", ""))
+
+        device_stack = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        device_stack.add(monitor_combo)
+        device_stack.add(mic_combo)
+        body.add(device_stack)
+
+        def _on_source_toggle(_btn):
+            if rb_monitor.get_active():
+                mic_combo.hide()
+                monitor_combo.show()
+            else:
+                monitor_combo.hide()
+                mic_combo.show()
+
+        rb_monitor.connect("toggled", _on_source_toggle)
+        _on_source_toggle(None)  # 初始化顯示
 
         # 翻譯方向
         # wrap_width=3 → GtkGrid 三欄模式，避免 GtkTreeView 置中造成頂部空白
@@ -157,12 +190,94 @@ class SetupDialogGTK:
         dir_box.pack_start(tgt_combo, True, True, 0)
         body.add(dir_box)
 
+        # 字體大小（進階設定）
+        _en_font_size = [int(self._config.get("en_font_size", 15))]
+        _zh_font_size = [int(self._config.get("zh_font_size", 24))]
+
+        def _open_adv(_btn):
+            adv = Gtk.Dialog(title="進階設定", flags=0, transient_for=win, modal=True)
+            adv.set_default_size(400, -1)
+            adv.set_border_width(0)
+            adv.add_button("取消", Gtk.ResponseType.CANCEL)
+            adv.add_button("確認", Gtk.ResponseType.OK)
+            adv.set_default_response(Gtk.ResponseType.OK)
+
+            adv_body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+            adv_body.set_border_width(20)
+
+            def _add_adv_label(text):
+                l = Gtk.Label(label=text, xalign=0)
+                l.get_style_context().add_class("field-label")
+                adv_body.add(l)
+
+            def _make_slider(lo, hi, init):
+                row = Gtk.Box(spacing=10, orientation=Gtk.Orientation.HORIZONTAL)
+                scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lo, hi, 1)
+                scale.set_value(init)
+                scale.set_digits(0)
+                scale.set_draw_value(False)
+                scale.set_hexpand(True)
+                val_lbl = Gtk.Label(label=str(init), width_chars=3, xalign=1.0)
+                scale.connect("value-changed", lambda s: val_lbl.set_text(str(int(s.get_value()))))
+                row.pack_start(scale, True, True, 0)
+                row.pack_start(val_lbl, False, False, 0)
+                return row, scale
+
+            _add_adv_label("辨識字體大小（原文）")
+            en_row, en_scale = _make_slider(10, 30, _en_font_size[0])
+            adv_body.add(en_row)
+
+            _add_adv_label("翻譯字體大小")
+            zh_row, zh_scale = _make_slider(14, 40, _zh_font_size[0])
+            adv_body.add(zh_row)
+
+            # 預覽區
+            _add_adv_label("預覽")
+            preview = Gtk.Frame()
+            preview.set_shadow_type(Gtk.ShadowType.IN)
+            pv_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            pv_box.set_border_width(10)
+            pv_en = Gtk.Label(label="Hello, this is a subtitle preview.", xalign=0)
+            pv_zh = Gtk.Label(label="這是即時字幕的預覽文字。", xalign=0)
+            pv_en.set_line_wrap(True)
+            pv_zh.set_line_wrap(True)
+
+            def _update_preview(*_):
+                pv_en.override_font(
+                    Pango.FontDescription.from_string(f"Sans {int(en_scale.get_value())}"))
+                pv_zh.override_font(
+                    Pango.FontDescription.from_string(f"Sans Bold {int(zh_scale.get_value())}"))
+
+            en_scale.connect("value-changed", _update_preview)
+            zh_scale.connect("value-changed", _update_preview)
+            _update_preview()
+
+            pv_box.add(pv_en)
+            pv_box.add(pv_zh)
+            preview.add(pv_box)
+            adv_body.add(preview)
+
+            adv.get_content_area().add(adv_body)
+            adv.show_all()
+
+            if adv.run() == Gtk.ResponseType.OK:
+                _en_font_size[0] = int(en_scale.get_value())
+                _zh_font_size[0] = int(zh_scale.get_value())
+                adv_btn.set_label(f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt）")
+            adv.destroy()
+
+        adv_btn = Gtk.Button(label=f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt）")
+        adv_btn.set_relief(Gtk.ReliefStyle.NONE)
+        adv_btn.connect("clicked", _open_adv)
+        body.add(adv_btn)
+
         # 警告訊息
         warn_label = Gtk.Label(xalign=0)
         warn_label.get_style_context().add_class("warn-label")
         body.add(warn_label)
 
         win.show_all()
+        _on_source_toggle(None)  # show_all 後重設裝置顯示
 
         while True:
             response = win.run()
@@ -171,14 +286,18 @@ class SetupDialogGTK:
             if not key_entry.get_text().strip():
                 warn_label.set_markup('<span color="red">⚠ 請填入 OpenAI API Key</span>')
                 continue
-            device_text = combo.get_child().get_text().strip()
+            _is_monitor = rb_monitor.get_active()
             _src_lbl = src_combo.get_active_text() or "en (English)"
             _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
             self._result = {
                 "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
-                "monitor_device": device_text,
+                "source": "monitor" if _is_monitor else "mic",
+                "monitor_device": monitor_combo.get_child().get_text().strip(),
+                "mic_device": mic_combo.get_child().get_text().strip(),
                 "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
                 "openai_api_key": key_entry.get_text().strip(),
+                "en_font_size": _en_font_size[0],
+                "zh_font_size": _zh_font_size[0],
             }
             break
 
