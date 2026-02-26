@@ -366,13 +366,8 @@ class SubtitleOverlay:
         self._canvas.create_text(ex, zy, text=self._zh_str, fill=self.ZH_COLOR,
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
 
-        # 免責聲明 — 右下角
-        dx, dy = w - 10, h - 6
-        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            self._canvas.create_text(dx+ox, dy+oy, text=self.DISCLAIMER_TEXT,
-                                     fill=self.OUTLINE_COLOR, font=self.DISCLAIMER_FONT,
-                                     anchor="se", tags="text")
-        self._canvas.create_text(dx, dy, text=self.DISCLAIMER_TEXT,
+        # 免責聲明 — 右下角（無描邊，純色）
+        self._canvas.create_text(w - 10, h - 6, text=self.DISCLAIMER_TEXT,
                                  fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
                                  anchor="se", tags="text")
 
