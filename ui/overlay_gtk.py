@@ -3,8 +3,9 @@
 import logging
 import sys
 
-from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
-import cairo
+if sys.platform != "win32":
+    from gi.repository import Gtk, Gdk, GLib, Pango, PangoCairo
+    import cairo
 
 from languages import parse_direction, swap_direction
 

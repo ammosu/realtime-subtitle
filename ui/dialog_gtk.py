@@ -2,8 +2,10 @@
 """GTK3 啟動設定對話框（Linux）。"""
 import logging
 import os
+import sys
 
-from gi.repository import Gtk, Gdk
+if sys.platform != "win32":
+    from gi.repository import Gtk, Gdk
 
 from config import _list_audio_devices_for_dialog
 from languages import LANG_LABELS, lang_code_to_label, lang_label_to_code, parse_direction
