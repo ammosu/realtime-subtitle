@@ -15,6 +15,9 @@ a = Analysis(
         *ctk_datas,
     ],
     hiddenimports=[
+        "constants", "asr", "audio", "worker", "config",
+        "ui", "ui.overlay_gtk", "ui.overlay_tk",
+        "ui.dialog_gtk", "ui.dialog_tk",
         "pyaudiowpatch",
         "scipy.signal",
         "scipy._lib.messagestream",

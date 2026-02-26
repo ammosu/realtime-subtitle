@@ -62,7 +62,21 @@ Settings chosen in the dialog are persisted to `~/.config/realtime-subtitle/conf
 
 ## Architecture
 
-Everything lives in a single file: `subtitle_client.py`.
+The application is split into focused modules under the repo root and a `ui/` sub-package:
+
+| Module | Responsibility |
+|--------|----------------|
+| `subtitle_client.py` | Entry point: `main()`, `show_setup_dialog()`, CLI argument parsing |
+| `constants.py` | Shared constants (`TARGET_SR`, `CHUNK_SAMPLES`) and logging configuration |
+| `asr.py` | `ASRClient` (HTTP POST to ASR server) and `TranslationDebouncer` |
+| `audio.py` | `MonitorAudioSource`, `MicrophoneAudioSource`, device enumeration |
+| `worker.py` | Worker subprocess entry point (`_worker_main`): VAD + ASR + translation pipeline |
+| `config.py` | `load_config()` / `save_config()` and audio-device listing helpers |
+| `ui/__init__.py` | GTK3 availability detection (`_GTK3_AVAILABLE`) |
+| `ui/overlay_gtk.py` | `SubtitleOverlayGTK` (GTK3 + Cairo, Linux) |
+| `ui/overlay_tk.py` | `SubtitleOverlay` (tkinter, Windows / fallback) |
+| `ui/dialog_gtk.py` | `SetupDialogGTK` (GTK3 startup config dialog) |
+| `ui/dialog_tk.py` | `SetupDialogTk` (tkinter startup config dialog) |
 
 ### Process model
 
@@ -137,7 +151,17 @@ HTTP POST to `<base_url>/api/transcribe` with raw float32 PCM bytes (`Content-Ty
 
 | File | Purpose |
 |------|---------|
-| `subtitle_client.py` | Entire application (~1600 lines) |
-| `silero_vad_v6.onnx` | Silero VAD v6 model (required at runtime) |
-| `.venv/lib/.../system-gi.pth` | Lets venv access system PyGObject/GTK3 |
-| `~/.config/realtime-subtitle/config.json` | Persisted user settings (auto-created) |
+| `subtitle_client.py` | 主程式進入點（`main()` + `show_setup_dialog()`，~280 行） |
+| `constants.py` | 共用常數：`TARGET_SR`, `CHUNK_SAMPLES`，logging 設定 |
+| `asr.py` | ASR HTTP client (`ASRClient`) 與翻譯 debouncer (`TranslationDebouncer`) |
+| `audio.py` | 音訊來源：`MonitorAudioSource`, `MicrophoneAudioSource` |
+| `worker.py` | Worker subprocess：VAD + ASR + 翻譯 pipeline |
+| `config.py` | 設定檔讀寫與音訊裝置列舉 |
+| `ui/__init__.py` | GTK3 可用性偵測 (`_GTK3_AVAILABLE`) |
+| `ui/overlay_gtk.py` | `SubtitleOverlayGTK`（GTK3 + Cairo，Linux）|
+| `ui/overlay_tk.py` | `SubtitleOverlay`（tkinter，Windows / fallback）|
+| `ui/dialog_gtk.py` | `SetupDialogGTK`（GTK3 啟動設定對話框）|
+| `ui/dialog_tk.py` | `SetupDialogTk`（tkinter 啟動設定對話框）|
+| `silero_vad_v6.onnx` | Silero VAD v6 model（runtime 必須存在）|
+| `.venv/lib/.../system-gi.pth` | 讓 venv 存取系統 PyGObject/GTK3 |
+| `~/.config/realtime-subtitle/config.json` | 使用者設定（自動建立）|
