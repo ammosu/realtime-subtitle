@@ -1601,11 +1601,16 @@ class SetupDialogGTK:
         box.add(combo)
 
         # 翻譯方向
+        # GTK3 ComboBoxText 在單欄模式（wrap_width=1）時，項目多會進入
+        # GtkTreeView+ScrolledWindow 模式並把選中項置中，造成頂部空白。
+        # 設為 wrap_width=3（三欄 GtkGrid 模式）可顯示全部語言且不會有空白。
         box.add(Gtk.Label(label="翻譯方向", xalign=0))
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         dir_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
         src_combo = Gtk.ComboBoxText()
         tgt_combo = Gtk.ComboBoxText()
+        src_combo.set_wrap_width(3)
+        tgt_combo.set_wrap_width(3)
         for i, lbl in enumerate(LANG_LABELS):
             src_combo.append_text(lbl)
             tgt_combo.append_text(lbl)
