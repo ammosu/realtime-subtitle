@@ -802,11 +802,16 @@ class SubtitleOverlayGTK:
             self._win.move(int(event.x_root - ox), int(event.y_root - oy))
             return
 
+        # 工具列按鈕優先：hover 在按鈕上時不顯示縮放游標
+        if self._toolbar_visible and y < self.TOOLBAR_HEIGHT:
+            for bx, by, bw, bh in self._btn_rects.values():
+                if bx <= x <= bx + bw and by <= y <= by + bh:
+                    self._set_cursor(None)
+                    return
+
         zone = self._get_resize_zone(x, y)
         if zone:
             self._set_cursor(self._build_cursors().get(zone))
-        elif y < self.DRAG_BAR_HEIGHT:
-            self._set_cursor(Gdk.CursorType.FLEUR)
         else:
             self._set_cursor(None)
 
@@ -847,14 +852,7 @@ class SubtitleOverlayGTK:
             return
         x, y = event.x, event.y
 
-        zone = self._get_resize_zone(x, y)
-        if zone:
-            wx0, wy0 = self._win.get_position()
-            w0, h0 = self._win.get_size()
-            self._resize_data = (event.x_root, event.y_root, w0, h0, wx0, wy0, zone)
-            return
-
-        # 工具列按鈕點擊
+        # 工具列按鈕優先：右上角關閉/設定按鈕與縮放區重疊，必須先做 hit-test
         if self._toolbar_visible and y < self.TOOLBAR_HEIGHT:
             for key, (bx, by, bw, bh) in self._btn_rects.items():
                 if bx <= x <= bx + bw and by <= y <= by + bh:
@@ -869,6 +867,13 @@ class SubtitleOverlayGTK:
                     elif key == "settings" and self._on_open_settings:
                         self._on_open_settings()
                     return
+
+        zone = self._get_resize_zone(x, y)
+        if zone:
+            wx0, wy0 = self._win.get_position()
+            w0, h0 = self._win.get_size()
+            self._resize_data = (event.x_root, event.y_root, w0, h0, wx0, wy0, zone)
+            return
 
         # 拖拉
         wx0, wy0 = self._win.get_position()
