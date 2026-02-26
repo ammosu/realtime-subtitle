@@ -144,6 +144,8 @@ def main() -> None:
     _current_config = {
         "asr_server": args.asr_server,
         "monitor_device": args.monitor_device,
+        "mic_device": args.mic_device,
+        "source": args.source,
         "direction": args.direction,
         "openai_api_key": args.openai_api_key,
     }
@@ -196,10 +198,9 @@ def main() -> None:
 
         # 用新設定重啟 worker
         new_cfg = dict(cfg)
-        for k in ("asr_server", "monitor_device", "direction", "openai_api_key"):
+        for k in ("asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key"):
             if k in _current_config:
                 new_cfg[k] = _current_config[k]
-        new_cfg["source"] = "monitor"
         worker_ref[0] = _start_worker(new_cfg)
         log.info("[Settings] Worker 重啟完成：asr=%s device=%s dir=%s",
                  new_cfg["asr_server"], new_cfg["monitor_device"], new_cfg["direction"])

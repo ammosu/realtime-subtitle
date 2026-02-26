@@ -39,7 +39,7 @@ def save_config(settings: dict) -> None:
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
     keys = ["asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key", "en_font_size", "zh_font_size"]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
+        json.dump({k: settings.get(k, _CONFIG_DEFAULTS.get(k, "")) for k in keys}, f, ensure_ascii=False, indent=2)
 
 
 def _list_audio_devices_for_dialog() -> list[str]:

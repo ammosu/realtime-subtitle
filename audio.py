@@ -245,7 +245,7 @@ class MicrophoneAudioSource(AudioSource):
     """麥克風音訊來源。"""
 
     def __init__(self, device=None):
-        self._device = device  # None = 系統預設麥克風
+        self._device = device or None  # 空字串或 None 都視為系統預設麥克風
         self._stream = None
         self._buf: np.ndarray = np.zeros(0, dtype=np.float32)
         self._native_sr: int = 0

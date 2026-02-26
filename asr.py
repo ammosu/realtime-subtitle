@@ -18,13 +18,17 @@ class ASRClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
 
-    def transcribe(self, audio_float32: np.ndarray) -> dict:
+    def transcribe(self, audio_float32: np.ndarray, language: str | None = None) -> dict:
         """
         One-shot 轉錄：送出整段 16kHz float32 音訊，回傳 {"language": str, "text": str}。
         audio_float32: shape (N,), dtype float32
+        language: 可選的語言代碼（如 "zh", "en", "ja"），傳給 server 可提升辨識準確度。
         """
+        url = f"{self.base_url}/api/transcribe"
+        if language:
+            url = f"{url}?language={language}"
         r = requests.post(
-            f"{self.base_url}/api/transcribe",
+            url,
             data=audio_float32.tobytes(),
             headers={"Content-Type": "application/octet-stream"},
             timeout=45,

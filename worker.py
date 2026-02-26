@@ -13,6 +13,7 @@ import numpy as np
 from asr import ASRClient, TranslationDebouncer
 from audio import MonitorAudioSource, MicrophoneAudioSource
 from constants import TARGET_SR
+from languages import parse_direction
 
 log = logging.getLogger(__name__)
 
@@ -65,12 +66,14 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         audio_source = MicrophoneAudioSource(device=cfg.get("mic_device"))
 
     asr = ASRClient(cfg["asr_server"])
+    _src_lang, _ = parse_direction(cfg.get("direction", ""))
+    _asr_lang = _src_lang if _src_lang else None  # 傳給 ASR server 的語言提示
 
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
     VAD_THRESHOLD = 0.5
     RT_SILENCE_CHUNKS = 14        # 0.5s - 靜音後觸發轉錄
-    RT_MAX_BUFFER_CHUNKS = 138    # 5s   - 強制 flush（縮短延遲）
+    RT_MAX_BUFFER_CHUNKS = 222    # 8s   - 強制 flush（縮短延遲）
 
     # 載入 VAD 模型（打包後 worker spawn 中 __file__ 不可靠，改用 sys.executable）
     _base_dir = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
@@ -172,7 +175,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 continue
 
             try:
-                result = asr.transcribe(audio)
+                result = asr.transcribe(audio, language=_asr_lang)
                 language = result.get("language", "")
                 text = _to_traditional(result.get("text", ""), language)
                 print(f"[ASR] lang={language!r} text={text!r} same={text == current_original}", flush=True)

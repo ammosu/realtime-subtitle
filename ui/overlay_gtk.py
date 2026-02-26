@@ -26,7 +26,7 @@ class SubtitleOverlayGTK:
 
     TOOLBAR_HEIGHT = 28
     DRAG_BAR_HEIGHT = 14
-    WINDOW_HEIGHT = 160
+    WINDOW_HEIGHT = 210
     CORNER_SIZE = 20
     EDGE_SIZE = 6
 
@@ -91,9 +91,31 @@ class SubtitleOverlayGTK:
 
     # ── Drawing ──────────────────────────────────────────────────────────────
 
+    def _text_height(self, cr, text: str, max_w: int, font_str: str) -> int:
+        """用 Pango layout 計算文字換行後的實際像素高度。"""
+        if not text:
+            return 0
+        layout = PangoCairo.create_layout(cr)
+        layout.set_text(text, -1)
+        layout.set_font_description(Pango.FontDescription.from_string(font_str))
+        layout.set_width(int(max_w * Pango.SCALE))
+        layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+        _, h = layout.get_pixel_size()
+        return h
+
+    def _resize_to_height(self, new_h: int) -> bool:
+        """將視窗高度調整至 new_h，底部位置固定（往上延伸）。"""
+        cur_w, cur_h = self._win.get_size()
+        if abs(cur_h - new_h) > 2:
+            wx, wy = self._win.get_position()
+            self._win.resize(cur_w, new_h)
+            self._win.move(wx, wy + cur_h - new_h)
+        return False  # GLib.idle_add 只執行一次
+
     def _on_draw(self, da, cr):
         w = da.get_allocated_width()
         h = da.get_allocated_height()
+        max_w = w - 40
 
         # 完全透明底色
         cr.set_operator(cairo.OPERATOR_CLEAR)
@@ -114,11 +136,20 @@ class SubtitleOverlayGTK:
 
         # EN 字幕（黃色）
         ty = self.DRAG_BAR_HEIGHT + 12
-        self._draw_outlined_text(cr, self._en_str, 20, ty, w - 40,
+        en_h = self._text_height(cr, self._en_str, max_w, "Arial 15")
+        self._draw_outlined_text(cr, self._en_str, 20, ty, max_w,
                                  (1.0, 0.87, 0.3), "Arial 15")
-        # ZH 字幕（白色）
-        self._draw_outlined_text(cr, self._zh_str, 20, ty + 35, w - 40,
+
+        # ZH 字幕（白色）— 動態定位於 EN 文字正下方
+        zh_y = ty + en_h + (8 if en_h > 0 else 0)
+        zh_h = self._text_height(cr, self._zh_str, max_w, "Noto Sans CJK TC Bold 22")
+        self._draw_outlined_text(cr, self._zh_str, 20, zh_y, max_w,
                                  (1.0, 1.0, 1.0), "Noto Sans CJK TC Bold 22")
+
+        # 若內容超出視窗，排程調整高度（底部固定，向上延伸）
+        needed_h = max(self.WINDOW_HEIGHT, zh_y + zh_h + 16)
+        if abs(needed_h - h) > 2:
+            GLib.idle_add(self._resize_to_height, needed_h)
 
     def _draw_outlined_text(self, cr, text: str, x, y, max_w, rgb, font_str: str):
         if not text:
