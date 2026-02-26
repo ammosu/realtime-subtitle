@@ -1552,18 +1552,78 @@ class SetupDialogGTK:
 
     def run(self) -> dict | None:
         """顯示對話框，回傳設定 dict 或 None（取消）。"""
-        win = Gtk.Dialog(title="Real-time Subtitle — 設定", flags=0)
-        win.set_default_size(420, 1)
-        win.set_border_width(16)
-        win.add_button("取消", Gtk.ResponseType.CANCEL)
-        win.add_button("開始字幕", Gtk.ResponseType.OK)
+        # ── CSS 樣式 ────────────────────────────────────────────────────
+        css = Gtk.CssProvider()
+        css.load_from_data(b"""
+            .app-header {
+                padding: 16px 20px 12px 20px;
+                border-bottom: 1px solid alpha(#000, 0.1);
+            }
+            .field-label {
+                font-size: 11px;
+                font-weight: bold;
+                color: alpha(currentColor, 0.6);
+                margin-top: 14px;
+                margin-bottom: 3px;
+            }
+            .field-label.first {
+                margin-top: 0;
+            }
+            entry {
+                padding: 6px 10px;
+                min-height: 34px;
+            }
+            combobox {
+                min-height: 34px;
+            }
+            .warn-label {
+                font-size: 11px;
+                margin-top: 6px;
+            }
+            .dialog-body {
+                padding: 20px 20px 8px 20px;
+            }
+        """)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        # ── 視窗 ────────────────────────────────────────────────────────
+        win = Gtk.Dialog(title="Real-time Subtitle", flags=0)
+        win.set_default_size(460, -1)
+        win.set_border_width(0)
+        win.set_resizable(False)
+
+        btn_cancel = win.add_button("取消", Gtk.ResponseType.CANCEL)
+        btn_ok = win.add_button("▶  開始字幕", Gtk.ResponseType.OK)
+        btn_ok.get_style_context().add_class("suggested-action")
         win.set_default_response(Gtk.ResponseType.OK)
 
-        box = win.get_content_area()
-        box.set_spacing(12)
+        outer = win.get_content_area()
+        outer.set_spacing(0)
+
+        # ── 標題區 ──────────────────────────────────────────────────────
+        header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        header_box.get_style_context().add_class("app-header")
+        title_lbl = Gtk.Label(xalign=0)
+        title_lbl.set_markup('<span size="large" weight="bold">⚡  Real-time Subtitle</span>')
+        header_box.add(title_lbl)
+        outer.add(header_box)
+
+        # ── 表單區 ──────────────────────────────────────────────────────
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        body.get_style_context().add_class("dialog-body")
+        outer.add(body)
+
+        def _add_label(text, first=False):
+            lbl = Gtk.Label(label=text, xalign=0)
+            lbl.get_style_context().add_class("field-label")
+            if first:
+                lbl.get_style_context().add_class("first")
+            body.add(lbl)
 
         # OpenAI API Key
-        box.add(Gtk.Label(label="OpenAI API Key", xalign=0))
+        _add_label("OpenAI API Key", first=True)
         key_entry = Gtk.Entry()
         key_entry.set_visibility(False)
         key_entry.set_placeholder_text("sk-...")
@@ -1573,17 +1633,18 @@ class SetupDialogGTK:
         )
         key_entry.set_text(_existing_key)
         key_entry.set_activates_default(True)
-        box.add(key_entry)
+        body.add(key_entry)
 
         # ASR Server URL
-        box.add(Gtk.Label(label="ASR Server URL", xalign=0))
+        _add_label("ASR Server URL")
         url_entry = Gtk.Entry()
         url_entry.set_text(self._config.get("asr_server", "http://localhost:8000"))
+        url_entry.set_placeholder_text("http://localhost:8000")
         url_entry.set_activates_default(True)
-        box.add(url_entry)
+        body.add(url_entry)
 
         # 音訊來源
-        box.add(Gtk.Label(label="音訊來源", xalign=0))
+        _add_label("音訊來源")
         devices = _list_audio_devices_for_dialog()
         combo = Gtk.ComboBoxText.new_with_entry()
         saved_device = self._config.get("monitor_device", "")
@@ -1597,14 +1658,11 @@ class SetupDialogGTK:
             combo.get_child().set_text(saved_device)
         elif not inserted_saved and devices:
             combo.set_active(0)
-
-        box.add(combo)
+        body.add(combo)
 
         # 翻譯方向
-        # GTK3 ComboBoxText 在單欄模式（wrap_width=1）時，項目多會進入
-        # GtkTreeView+ScrolledWindow 模式並把選中項置中，造成頂部空白。
-        # 設為 wrap_width=3（三欄 GtkGrid 模式）可顯示全部語言且不會有空白。
-        box.add(Gtk.Label(label="翻譯方向", xalign=0))
+        # wrap_width=3 → GtkGrid 三欄模式，避免 GtkTreeView 置中造成頂部空白
+        _add_label("翻譯方向")
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         dir_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
         src_combo = Gtk.ComboBoxText()
@@ -1627,11 +1685,12 @@ class SetupDialogGTK:
         dir_box.pack_start(src_combo, True, True, 0)
         dir_box.pack_start(swap_btn, False, False, 0)
         dir_box.pack_start(tgt_combo, True, True, 0)
-        box.add(dir_box)
+        body.add(dir_box)
 
-        warn_label = Gtk.Label(label="", xalign=0)
-        warn_label.set_markup("")
-        box.add(warn_label)
+        # 警告訊息
+        warn_label = Gtk.Label(xalign=0)
+        warn_label.get_style_context().add_class("warn-label")
+        body.add(warn_label)
 
         win.show_all()
 
@@ -1988,6 +2047,22 @@ def main() -> None:
     log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
     use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
 
+    def _drain_queue(q: multiprocessing.SimpleQueue) -> None:
+        """清空 SimpleQueue 中的殘留訊息。"""
+        while not q.empty():
+            try:
+                q.get()
+            except Exception:
+                break
+
+    def _start_worker(new_cfg: dict) -> multiprocessing.Process:
+        w = multiprocessing.Process(
+            target=_worker_main, args=(text_q, cmd_q, new_cfg),
+            daemon=True, name="subtitle-worker",
+        )
+        w.start()
+        return w
+
     def on_open_settings() -> None:
         if use_gtk:
             new_settings = SetupDialogGTK(_current_config).run()
@@ -1997,15 +2072,37 @@ def main() -> None:
             return
         save_config(new_settings)
         _current_config.update(new_settings)
-        # 立即套用語言方向
-        new_dir = new_settings.get("direction", current_direction[0])
-        if new_dir != current_direction[0]:
-            current_direction[0] = new_dir
-            cmd_q.put(f"set_direction:{new_dir}")
-            overlay.update_direction_label(new_dir)
-        # API key 更新（worker 重啟前生效）
-        if new_settings.get("openai_api_key"):
-            args.openai_api_key = new_settings["openai_api_key"]
+        current_direction[0] = new_settings.get("direction", current_direction[0])
+
+        # 停止舊 worker
+        log.info("[Settings] 停止舊 worker...")
+        cmd_q.put("stop")
+        worker_ref[0].join(timeout=3)
+        if worker_ref[0].is_alive():
+            worker_ref[0].terminate()
+            worker_ref[0].join(timeout=1)
+
+        # 清空 queues 殘留訊息
+        _drain_queue(text_q)
+        _drain_queue(cmd_q)
+
+        # 用新設定重啟 worker
+        new_cfg = dict(cfg)
+        for k in ("asr_server", "monitor_device", "direction", "openai_api_key"):
+            if k in _current_config:
+                new_cfg[k] = _current_config[k]
+        new_cfg["source"] = "monitor"
+        worker_ref[0] = _start_worker(new_cfg)
+        log.info("[Settings] Worker 重啟完成：asr=%s device=%s dir=%s",
+                 new_cfg["asr_server"], new_cfg["monitor_device"], new_cfg["direction"])
+
+        # 清空字幕畫面 + 同步 UI 標籤
+        _last_original[0] = ""
+        _last_translated[0] = ""
+        overlay.set_text("", "")
+        overlay.update_direction_label(current_direction[0])
+        overlay.update_source_label("monitor")
+
     try:
         if use_gtk:
             overlay = SubtitleOverlayGTK(
@@ -2028,11 +2125,8 @@ def main() -> None:
     log.info("覆疊視窗建立成功")
 
     # 覆疊視窗初始化後才 fork worker（child 不使用 X11/GTK）
-    worker = multiprocessing.Process(
-        target=_worker_main, args=(text_q, cmd_q, cfg),
-        daemon=True, name="subtitle-worker",
-    )
-    worker.start()
+    # 用 list 包裝，讓 on_open_settings closure 可以重新賦值
+    worker_ref: list = [_start_worker(cfg)]
 
     _last_original   = [""]  # 保留上一筆原文，翻譯到來時不清掉
     _last_translated = [""]  # 保留上一筆翻譯，直到新翻譯到來才替換
@@ -2069,10 +2163,10 @@ def main() -> None:
 
     def _cleanup():
         cmd_q.put("stop")
-        worker.join(timeout=3)
-        if worker.is_alive():
-            worker.terminate()
-            worker.join(timeout=1)
+        worker_ref[0].join(timeout=3)
+        if worker_ref[0].is_alive():
+            worker_ref[0].terminate()
+            worker_ref[0].join(timeout=1)
 
     import signal
     signal.signal(signal.SIGTERM, lambda *_: (_cleanup(), sys.exit(0)))
