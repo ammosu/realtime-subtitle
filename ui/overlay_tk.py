@@ -36,16 +36,18 @@ class SubtitleOverlay:
     EN_COLOR = "#e0e0e0"         # 淡灰英文
     ZH_COLOR = "#ffffff"
     OUTLINE_COLOR = "#060606"    # 近黑描邊
-    EN_FONT = ("Noto Sans TC SemiBold", 15)
-    ZH_FONT = ("Noto Sans TC SemiBold", 24)  # 開源繁中字體
+    _FONT_FAMILY = "Noto Sans TC SemiBold"
     DISCLAIMER_TEXT = "安富財經科技 ｜ AI 即時辨識，內容僅供參考"
     DISCLAIMER_COLOR = "#606060"
-    DISCLAIMER_FONT = ("Noto Sans TC SemiBold", 9)
+    DISCLAIMER_FONT = (_FONT_FAMILY, 10)
 
-    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None):
+    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
+                 en_font_size: int = 15, zh_font_size: int = 24):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
+        self.EN_FONT = (self._FONT_FAMILY, en_font_size)
+        self.ZH_FONT = (self._FONT_FAMILY, zh_font_size)
 
         self._root = tk.Tk()
 

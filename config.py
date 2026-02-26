@@ -17,6 +17,8 @@ _CONFIG_DEFAULTS = {
     "monitor_device": MonitorAudioSource.DEFAULT_DEVICE or "",
     "direction": "en→zh",
     "openai_api_key": "",
+    "en_font_size": 15,
+    "zh_font_size": 24,
 }
 
 
@@ -33,7 +35,7 @@ def load_config() -> dict:
 def save_config(settings: dict) -> None:
     """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
-    keys = ["asr_server", "monitor_device", "direction", "openai_api_key"]
+    keys = ["asr_server", "monitor_device", "direction", "openai_api_key", "en_font_size", "zh_font_size"]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump({k: settings[k] for k in keys}, f, ensure_ascii=False, indent=2)
 

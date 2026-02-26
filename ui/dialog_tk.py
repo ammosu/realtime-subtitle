@@ -131,6 +131,104 @@ class SetupDialogTk:
                           height=34, font=_noto_sm,
                           dynamic_resizing=False).grid(row=0, column=2, sticky="ew")
 
+        _warn_label = ctk.CTkLabel(body, text="", font=_noto_sm, text_color="#f87171")
+        _warn_label.pack(fill="x")
+
+        # ── 進階設定（跳出獨立小視窗）─────────────────────────────────
+        _font_family = "Noto Sans TC SemiBold"
+        _en_init = int(self._config.get("en_font_size", 15))
+        _zh_init = int(self._config.get("zh_font_size", 24))
+        en_size_var = tk.IntVar(value=_en_init)
+        zh_size_var = tk.IntVar(value=_zh_init)
+
+        def _open_adv():
+            popup = ctk.CTkToplevel(root)
+            popup.title("進階設定")
+            popup.resizable(False, False)
+            popup.geometry("440x340")
+            popup.attributes("-topmost", True)
+            popup.grab_set()
+            # 置中於主視窗旁
+            root.update_idletasks()
+            rx, ry = root.winfo_x(), root.winfo_y()
+            popup.geometry(f"440x340+{rx + 470}+{ry}")
+
+            pad = dict(padx=20, pady=(0, 10))
+
+            ctk.CTkLabel(popup, text="⚙  進階設定 — 字體大小",
+                         font=_noto_md, text_color="#7eb8f7",
+                         anchor="w").pack(fill="x", padx=20, pady=(16, 12))
+
+            # 暫存 var（取消時不影響外層）
+            tmp_en = tk.IntVar(value=en_size_var.get())
+            tmp_zh = tk.IntVar(value=zh_size_var.get())
+
+            def _make_row(parent, label: str, var: tk.IntVar, lo: int, hi: int):
+                row = ctk.CTkFrame(parent, fg_color="transparent")
+                row.pack(fill="x", **pad)
+                row.columnconfigure(1, weight=1)
+                ctk.CTkLabel(row, text=label, font=_noto_sm,
+                             text_color="#9ca3af", width=110, anchor="w").grid(row=0, column=0)
+                ctk.CTkSlider(row, from_=lo, to=hi, number_of_steps=hi - lo,
+                              variable=var, height=18).grid(row=0, column=1, sticky="ew", padx=8)
+                ctk.CTkLabel(row, textvariable=var, font=_noto_sm,
+                             text_color="#c5d8f8", width=32).grid(row=0, column=2)
+
+            _make_row(popup, "辨識字體大小", tmp_en, 10, 30)
+            _make_row(popup, "翻譯字體大小", tmp_zh, 14, 40)
+
+            # 預覽區
+            _PREVIEW_EN = "Hello, this is a live subtitle preview."
+            _PREVIEW_ZH = "這是即時字幕的預覽文字。"
+            preview_frame = ctk.CTkFrame(popup, fg_color="#0d0d1a", corner_radius=6)
+            preview_frame.pack(fill="x", padx=20, pady=(4, 12))
+            prev_en = ctk.CTkLabel(preview_frame, text=_PREVIEW_EN,
+                                   font=ctk.CTkFont(family=_font_family, size=tmp_en.get()),
+                                   text_color="#e0e0e0", anchor="w", wraplength=380)
+            prev_en.pack(fill="x", padx=12, pady=(10, 2))
+            prev_zh = ctk.CTkLabel(preview_frame, text=_PREVIEW_ZH,
+                                   font=ctk.CTkFont(family=_font_family, size=tmp_zh.get()),
+                                   text_color="#ffffff", anchor="w", wraplength=380)
+            prev_zh.pack(fill="x", padx=12, pady=(2, 10))
+
+            def _update(*_):
+                prev_en.configure(font=ctk.CTkFont(family=_font_family, size=tmp_en.get()))
+                prev_zh.configure(font=ctk.CTkFont(family=_font_family, size=tmp_zh.get()))
+            tmp_en.trace_add("write", _update)
+            tmp_zh.trace_add("write", _update)
+
+            # 按鈕
+            bf = ctk.CTkFrame(popup, fg_color="transparent")
+            bf.pack(fill="x", padx=20, pady=(0, 16))
+            bf.columnconfigure(0, weight=1)
+            bf.columnconfigure(1, weight=1)
+
+            def _adv_cancel():
+                popup.destroy()
+
+            def _adv_ok():
+                en_size_var.set(tmp_en.get())
+                zh_size_var.set(tmp_zh.get())
+                popup.destroy()
+
+            ctk.CTkButton(bf, text="取消", fg_color="transparent",
+                          border_width=1, border_color="#374151",
+                          text_color="#9ca3af", hover_color="#1f2937",
+                          font=_noto_sm, height=34,
+                          command=_adv_cancel).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+            ctk.CTkButton(bf, text="確認", font=_noto_sm, height=34,
+                          command=_adv_ok).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+
+            popup.protocol("WM_DELETE_WINDOW", _adv_cancel)
+            popup.wait_window()
+
+        ctk.CTkButton(
+            root, text="⚙  進階設定", height=30,
+            fg_color="transparent", hover_color="#1e1e3e",
+            text_color="#7eb8f7", font=_noto_sm, anchor="w",
+            command=_open_adv,
+        ).pack(fill="x", padx=24, pady=(0, 8))
+
         # ── 按鈕列 ─────────────────────────────────────────────────────
         btn_frame = ctk.CTkFrame(root, fg_color="transparent")
         btn_frame.pack(fill="x", padx=24, pady=16)
@@ -139,9 +237,6 @@ class SetupDialogTk:
 
         def on_cancel():
             root.destroy()
-
-        _warn_label = ctk.CTkLabel(body, text="", font=_noto_sm, text_color="#f87171")
-        _warn_label.pack(fill="x")
 
         def on_ok():
             api_key = key_var.get().strip()
@@ -153,6 +248,8 @@ class SetupDialogTk:
                 "monitor_device": device_var.get().strip(),
                 "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
                 "openai_api_key": api_key,
+                "en_font_size": en_size_var.get(),
+                "zh_font_size": zh_size_var.get(),
             }
             root.destroy()
 

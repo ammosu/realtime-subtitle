@@ -150,6 +150,9 @@ def main() -> None:
     # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
     log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
     use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
+    _cfg_fonts = load_config()
+    _en_font_size = int(_cfg_fonts.get("en_font_size", 15))
+    _zh_font_size = int(_cfg_fonts.get("zh_font_size", 24))
 
     def _drain_queue(q: multiprocessing.SimpleQueue) -> None:
         """清空 SimpleQueue 中的殘留訊息。"""
@@ -221,6 +224,8 @@ def main() -> None:
                 on_toggle_direction=on_toggle,
                 on_switch_source=on_switch_source,
                 on_open_settings=on_open_settings,
+                en_font_size=_en_font_size,
+                zh_font_size=_zh_font_size,
             )
     except Exception:
         log.exception("建立覆疊視窗失敗")
