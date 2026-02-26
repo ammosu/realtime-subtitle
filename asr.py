@@ -1,5 +1,6 @@
 # asr.py
 """ASR HTTP client 與翻譯 debouncer。"""
+import json
 import logging
 import threading
 
@@ -125,28 +126,33 @@ class TranslationDebouncer:
             direction = self.direction  # snapshot
         # lock 釋放後才呼叫 OpenAI
         src, tgt = parse_direction(direction)
+        _FILLER_ZH = "痾、阿、喔、嗯、啊、那個、就是、對對對、然後、所以說"
+        _FILLER_EN = "um, uh, like, you know, so, right, basically"
         if src == "en" and tgt == "zh":
             system_msg = (
-                "你是即時字幕翻譯員。將英文語音轉錄翻譯成自然流暢的繁體中文（台灣口語用語）。"
-                "要求：\n"
-                "1. 依照中文語法重新組句，不要逐字翻譯或照搬英文語序\n"
-                "2. 使用台灣人日常說話的方式，口語自然\n"
-                "3. 專有名詞、人名、品牌可保留英文原文\n"
-                "4. 只輸出翻譯結果，不加任何解釋或標注"
+                "你是即時字幕翻譯員。輸入是語音辨識（ASR）的原始文字。\n"
+                "請完成兩件事並以 JSON 回傳：\n"
+                f"1. corrected：修正同音字/辨識錯誤、移除無意義語氣詞（{_FILLER_ZH} 等），輸出自然書面英文\n"
+                "2. translated：將校正後文字翻譯成繁體中文（台灣口語），依中文語法重新組句\n"
+                '回傳格式：{"corrected": "校正後英文", "translated": "繁體中文翻譯"}'
             )
         elif src == "zh" and tgt == "en":
             system_msg = (
-                "You are a real-time subtitle translator. "
-                "Translate the Chinese speech transcript to natural, colloquial English. "
-                "Output ONLY the translation, no explanations."
+                "You are a real-time subtitle translator. The input is raw ASR (speech recognition) text.\n"
+                "Please do two things and return JSON:\n"
+                f"1. corrected: fix homophones/mis-recognized words, remove filler words ({_FILLER_ZH}, {_FILLER_EN}), output clean Chinese\n"
+                "2. translated: translate the corrected text to natural, colloquial English\n"
+                'Return format: {"corrected": "corrected Chinese", "translated": "English translation"}'
             )
         else:
             src_name = LANG_NAME.get(src, src)
             tgt_name = LANG_NAME.get(tgt, tgt)
             system_msg = (
-                f"You are a real-time subtitle translator. "
-                f"Translate the following {src_name} speech transcript to {tgt_name}. "
-                f"Keep it natural and concise. Output ONLY the translation, no explanations."
+                f"You are a real-time subtitle translator. The input is raw ASR text.\n"
+                f"Please do two things and return JSON:\n"
+                f"1. corrected: fix recognition errors, remove filler words, output clean {src_name}\n"
+                f"2. translated: translate the corrected text to {tgt_name}, keep it natural\n"
+                f'{{"corrected": "corrected {src_name}", "translated": "{tgt_name} translation"}}'
             )
         try:
             response = self.client.chat.completions.create(
@@ -157,15 +163,23 @@ class TranslationDebouncer:
                 ],
                 max_tokens=400,
                 temperature=0.1,
+                response_format={"type": "json_object"},
             )
-            translated = response.choices[0].message.content.strip()
-            log.info("[Translation] %s", translated)
+            content = response.choices[0].message.content.strip()
+            try:
+                data = json.loads(content)
+                corrected = data.get("corrected") or text
+                translated = data.get("translated", "")
+            except (json.JSONDecodeError, AttributeError):
+                corrected = text
+                translated = content
+            log.info("[Translation] corrected=%r translated=%r", corrected, translated)
             # 若有更新的翻譯請求已發出，丟棄本次過時結果
             with self._lock:
                 if my_seq != self._translate_seq:
                     log.debug("[Translation] stale (seq=%d vs %d), discarded", my_seq, self._translate_seq)
                     return
-            self.callback(translated)
+            self.callback(corrected, translated)
         except Exception as e:
             log.warning("[Translation error] %s", e)
 

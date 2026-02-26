@@ -50,8 +50,8 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
 
     current_original = ""
 
-    def on_translation(translated: str) -> None:
-        text_q.put({"original": current_original, "translated": translated})
+    def on_translation(corrected: str, translated: str) -> None:
+        text_q.put({"original": corrected, "translated": translated})
 
     debouncer = TranslationDebouncer(
         api_key=cfg["openai_api_key"],
