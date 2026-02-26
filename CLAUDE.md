@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Windows Packaging (.exe Installer)
+
+Requires PyInstaller (in venv) and Inno Setup 6 installed at `%LOCALAPPDATA%\Programs\Inno Setup 6`.
+
+```powershell
+# Step 1: PyInstaller (outputs to dist\RealtimeSubtitle\)
+.venv\Scripts\pyinstaller subtitle_client.spec -y
+
+# Step 2: Inno Setup (outputs to installer_output\RealtimeSubtitle-Setup.exe)
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss
+```
+
+Run both from the repo root with the venv activated. The `-y` flag overwrites existing `dist\RealtimeSubtitle` without prompting.
+
 ## Environment Setup (Linux)
 
 ```bash

@@ -129,6 +129,41 @@ python subtitle_client.py --asr-server http://<SERVER_IP>:8000 --direction zh→
 
 ---
 
+## Windows 打包成安裝檔（.exe）
+
+使用 PyInstaller + Inno Setup 6 打包。
+
+### 前置需求
+
+1. 虛擬環境中已安裝 PyInstaller：
+   ```powershell
+   .venv\Scripts\activate
+   pip install pyinstaller
+   ```
+
+2. 安裝 [Inno Setup 6](https://jrsoftware.org/isdl.php)（選擇 User 安裝，預設路徑為 `%LOCALAPPDATA%\Programs\Inno Setup 6`）
+
+### 打包步驟
+
+**Step 1 — PyInstaller**
+
+```powershell
+.venv\Scripts\activate
+.venv\Scripts\pyinstaller subtitle_client.spec -y
+```
+
+輸出到 `dist\RealtimeSubtitle\`
+
+**Step 2 — Inno Setup**
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss
+```
+
+輸出到 `installer_output\RealtimeSubtitle-Setup.exe`
+
+---
+
 ## Linux 安裝步驟
 
 > **注意**：`requirements.txt` 中的 `pyaudiowpatch` 是 Windows 專用套件，在 Linux 上無法安裝。請勿直接執行 `pip install -r requirements.txt`，改用以下方式建置環境。
