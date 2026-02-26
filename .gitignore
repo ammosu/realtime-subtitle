@@ -9,3 +9,4 @@ dist/
 installer_output/
 subtitle.log
 .claude/
+.worktrees/
