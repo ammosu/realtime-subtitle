@@ -67,6 +67,7 @@ class TranslationDebouncer:
         self._pending_text = ""
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
+        self._translate_seq = 0   # 每次 _do_translate 遞增；回呼時比對，過時結果直接丟棄
 
     def update(self, text: str):
         """每次 ASR 更新時呼叫。text 是目前的完整轉錄文字。"""
@@ -119,6 +120,8 @@ class TranslationDebouncer:
             if not text or text == self._last_translated:
                 return
             self._last_translated = text
+            self._translate_seq += 1
+            my_seq = self._translate_seq
             direction = self.direction  # snapshot
         # lock 釋放後才呼叫 OpenAI
         src, tgt = parse_direction(direction)
@@ -152,11 +155,16 @@ class TranslationDebouncer:
                     {"role": "system", "content": system_msg},
                     {"role": "user", "content": text},
                 ],
-                max_tokens=200,
+                max_tokens=400,
                 temperature=0.1,
             )
             translated = response.choices[0].message.content.strip()
             log.info("[Translation] %s", translated)
+            # 若有更新的翻譯請求已發出，丟棄本次過時結果
+            with self._lock:
+                if my_seq != self._translate_seq:
+                    log.debug("[Translation] stale (seq=%d vs %d), discarded", my_seq, self._translate_seq)
+                    return
             self.callback(translated)
         except Exception as e:
             log.warning("[Translation error] %s", e)

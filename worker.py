@@ -165,6 +165,13 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         nonlocal current_original
         print("[ASR] thread started", flush=True)
 
+        # 連續段落合併（翻譯用）：同一句話被 VAD max-buffer 截斷時，把相鄰段落合併後翻譯
+        # 顯示（原文黃字）只顯示最新一段，避免原文過長把翻譯推出視窗外
+        CONCAT_WINDOW_SEC = 4.0   # 上一段結果 4 秒內若有新段落，自動合併送翻譯
+        CONCAT_MAX_CHARS  = 200   # 超過此長度停止合併，視為新句子
+        _last_asr_time = 0.0
+        _accumulated_for_translation = ""   # 合併版，只送翻譯用
+
         while not _stop_event.is_set():
             try:
                 audio = _speech_q.get(timeout=0.5)
@@ -178,12 +185,26 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 result = asr.transcribe(audio, language=_asr_lang)
                 language = result.get("language", "")
                 text = _to_traditional(result.get("text", ""), language)
-                print(f"[ASR] lang={language!r} text={text!r} same={text == current_original}", flush=True)
+
+                # 計算合併版（翻譯用）
+                now = time.time()
+                if (_accumulated_for_translation
+                        and text
+                        and now - _last_asr_time < CONCAT_WINDOW_SEC
+                        and len(_accumulated_for_translation) < CONCAT_MAX_CHARS):
+                    _accumulated_for_translation += text
+                else:
+                    _accumulated_for_translation = text
+                _last_asr_time = now
+
+                print(f"[ASR] lang={language!r} text={text!r} accumulated={_accumulated_for_translation!r}", flush=True)
 
                 if text and text != current_original:
                     current_original = text
+                    # 顯示：只送最新一段原文（避免原文過長）
                     text_q.put({"original": text, "translated": ""})
-                    debouncer.update(text)  # 翻譯開啟
+                    # 翻譯：用合併版，涵蓋前後段落
+                    debouncer.update(_accumulated_for_translation)
 
             except Exception as e:
                 print(f"[Worker ASR error] {e}", flush=True)

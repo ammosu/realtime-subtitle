@@ -26,7 +26,7 @@ class SubtitleOverlayGTK:
 
     TOOLBAR_HEIGHT = 28
     DRAG_BAR_HEIGHT = 14
-    WINDOW_HEIGHT = 210
+    WINDOW_HEIGHT = 300
     CORNER_SIZE = 20
     EDGE_SIZE = 6
 
@@ -146,10 +146,6 @@ class SubtitleOverlayGTK:
         self._draw_outlined_text(cr, self._zh_str, 20, zh_y, max_w,
                                  (1.0, 1.0, 1.0), "Noto Sans CJK TC Bold 22")
 
-        # 若內容超出視窗，排程調整高度（底部固定，向上延伸）
-        needed_h = max(self.WINDOW_HEIGHT, zh_y + zh_h + 16)
-        if abs(needed_h - h) > 2:
-            GLib.idle_add(self._resize_to_height, needed_h)
 
     def _draw_outlined_text(self, cr, text: str, x, y, max_w, rgb, font_str: str):
         if not text:
@@ -390,8 +386,8 @@ class SubtitleOverlayGTK:
 
     def set_text(self, original: str = "", translated: str = ""):
         def _u():
-            self._en_str = original[-120:] if len(original) > 120 else original
-            self._zh_str = translated[-60:] if len(translated) > 60 else translated
+            self._en_str = original
+            self._zh_str = translated
             self._da.queue_draw()
             return False
         GLib.idle_add(_u)
