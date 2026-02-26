@@ -199,6 +199,10 @@ class SetupDialogTk:
         combo = tk.OptionMenu(root, device_var, *devices) if devices else tk.Entry(root, textvariable=device_var, width=48)
         combo.pack(fill="x", **pad)
 
+        tk.Label(root, text="OpenAI API Key", anchor="w").pack(fill="x", **pad)
+        key_var = tk.StringVar(value=self._config.get("openai_api_key", ""))
+        tk.Entry(root, textvariable=key_var, show="*", width=48).pack(**pad)
+
         tk.Label(root, text="翻譯方向", anchor="w").pack(fill="x", **pad)
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         src_var = tk.StringVar(value=lang_code_to_label(_src0))
@@ -216,11 +220,19 @@ class SetupDialogTk:
         btn_frame = tk.Frame(root)
         btn_frame.pack(pady=12)
 
+        _warn_label = tk.Label(root, text="", fg="red")
+        _warn_label.pack()
+
         def on_ok():
+            api_key = key_var.get().strip()
+            if not api_key:
+                _warn_label.configure(text="⚠ 請填入 OpenAI API Key")
+                return
             self._result = {
                 "asr_server": url_var.get().strip() or "http://localhost:8000",
                 "monitor_device": device_var.get().strip(),
                 "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
+                "openai_api_key": api_key,
             }
             root.destroy()
 
