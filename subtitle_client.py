@@ -15,6 +15,15 @@ import os
 import signal
 import sys
 
+# ── Windows：將 NotoSansTC-SemiBold.ttf 載入 GDI，讓 tkinter/customtkinter 可用 ──
+if sys.platform == "win32":
+    try:
+        import ctypes
+        _FONT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "NotoSansTC-SemiBold.ttf")
+        ctypes.windll.gdi32.AddFontResourceExW(_FONT_PATH, 0x10, 0)
+    except Exception:
+        pass
+
 from constants import _LOG_PATH
 from audio import AudioSource, MonitorAudioSource
 from worker import _worker_main
