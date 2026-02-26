@@ -106,7 +106,7 @@ AudioSource  →  on_chunk()  →  _vad_q
 
 - `VAD_CHUNK = 576` — 36ms frames fed to Silero
 - `RT_SILENCE_CHUNKS = 14` — 0.5s silence → flush
-- `RT_MAX_BUFFER_CHUNKS = 138` — 5s max → force flush
+- `RT_MAX_BUFFER_CHUNKS = 222` — 8s max → force flush
 - `DEBOUNCE_SEC = 0.4` — translation debounce in `TranslationDebouncer`
 
 ### GUI classes
