@@ -113,14 +113,6 @@ class SetupDialogGTK:
         url_entry.set_activates_default(True)
         body.add(url_entry)
 
-        # 辨識提示詞
-        _add_label("辨識提示詞（選填）")
-        context_entry = Gtk.Entry()
-        context_entry.set_text(self._config.get("context", ""))
-        context_entry.set_placeholder_text("專有名詞、人名…例：Qwen、vLLM、Jensen Huang")
-        context_entry.set_activates_default(True)
-        body.add(context_entry)
-
         # 音訊來源：系統音訊 / 麥克風 切換
         _add_label("音訊來源")
         _saved_source = self._config.get("source", "monitor")
@@ -198,9 +190,10 @@ class SetupDialogGTK:
         dir_box.pack_start(tgt_combo, True, True, 0)
         body.add(dir_box)
 
-        # 字體大小（進階設定）
+        # 進階設定
         _en_font_size = [int(self._config.get("en_font_size", 15))]
         _zh_font_size = [int(self._config.get("zh_font_size", 24))]
+        _context = [self._config.get("context", "")]
 
         def _open_adv(_btn):
             adv = Gtk.Dialog(title="進階設定", flags=0, transient_for=win, modal=True)
@@ -230,6 +223,12 @@ class SetupDialogGTK:
                 row.pack_start(scale, True, True, 0)
                 row.pack_start(val_lbl, False, False, 0)
                 return row, scale
+
+            _add_adv_label("辨識提示詞（選填）")
+            adv_context = Gtk.Entry()
+            adv_context.set_text(_context[0])
+            adv_context.set_placeholder_text("專有名詞、人名…例：Qwen、vLLM、Jensen Huang")
+            adv_body.add(adv_context)
 
             _add_adv_label("辨識字體大小（原文）")
             en_row, en_scale = _make_slider(10, 30, _en_font_size[0])
@@ -271,7 +270,9 @@ class SetupDialogGTK:
             if adv.run() == Gtk.ResponseType.OK:
                 _en_font_size[0] = int(en_scale.get_value())
                 _zh_font_size[0] = int(zh_scale.get_value())
-                adv_btn.set_label(f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt）")
+                _context[0] = adv_context.get_text().strip()
+                _hint = f"  ✎ {_context[0][:12]}…" if len(_context[0]) > 12 else (f"  ✎ {_context[0]}" if _context[0] else "")
+                adv_btn.set_label(f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt{_hint}）")
             adv.destroy()
 
         adv_btn = Gtk.Button(label=f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt）")
@@ -304,7 +305,7 @@ class SetupDialogGTK:
                 "mic_device": mic_combo.get_child().get_text().strip(),
                 "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
                 "openai_api_key": key_entry.get_text().strip(),
-                "context": context_entry.get_text().strip(),
+                "context": _context[0],
                 "en_font_size": _en_font_size[0],
                 "zh_font_size": _zh_font_size[0],
             }

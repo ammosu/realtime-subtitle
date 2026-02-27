@@ -90,13 +90,6 @@ class SetupDialogTk:
         ctk.CTkEntry(body, textvariable=url_var, height=36, font=_noto_sm,
                      placeholder_text="http://localhost:8000").pack(fill="x", pady=(4, 14))
 
-        # 辨識提示詞
-        ctk.CTkLabel(body, text="辨識提示詞（選填）", font=_noto_sm,
-                     text_color="#9ca3af", anchor="w").pack(fill="x")
-        context_var = tk.StringVar(value=self._config.get("context", ""))
-        ctk.CTkEntry(body, textvariable=context_var, height=36, font=_noto_sm,
-                     placeholder_text="專有名詞、人名…例：Qwen、vLLM、Jensen Huang").pack(fill="x", pady=(4, 14))
-
         # 音訊來源
         ctk.CTkLabel(body, text="音訊來源", font=_noto_sm,
                      text_color="#9ca3af", anchor="w").pack(fill="x")
@@ -184,28 +177,37 @@ class SetupDialogTk:
         _zh_init = int(self._config.get("zh_font_size", 24))
         en_size_var = tk.IntVar(value=_en_init)
         zh_size_var = tk.IntVar(value=_zh_init)
+        context_var = tk.StringVar(value=self._config.get("context", ""))
 
         def _open_adv():
             popup = ctk.CTkToplevel(root)
             popup.title("進階設定")
             popup.resizable(False, False)
-            popup.geometry("440x305")
+            popup.geometry("440x380")
             popup.attributes("-topmost", True)
             popup.grab_set()
             # 置中於主視窗旁
             root.update_idletasks()
             rx, ry = root.winfo_x(), root.winfo_y()
-            popup.geometry(f"440x305+{rx + 470}+{ry}")
+            popup.geometry(f"440x380+{rx + 470}+{ry}")
 
             pad = dict(padx=20, pady=(0, 10))
 
-            ctk.CTkLabel(popup, text="⚙  進階設定 — 字體大小",
+            ctk.CTkLabel(popup, text="⚙  進階設定",
                          font=_noto_md, text_color="#7eb8f7",
                          anchor="w").pack(fill="x", padx=20, pady=(16, 12))
 
             # 暫存 var（取消時不影響外層）
             tmp_en = tk.IntVar(value=en_size_var.get())
             tmp_zh = tk.IntVar(value=zh_size_var.get())
+            tmp_context = tk.StringVar(value=context_var.get())
+
+            # 辨識提示詞
+            ctk.CTkLabel(popup, text="辨識提示詞（選填）", font=_noto_sm,
+                         text_color="#9ca3af", anchor="w").pack(fill="x", padx=20)
+            ctk.CTkEntry(popup, textvariable=tmp_context, height=36, font=_noto_sm,
+                         placeholder_text="專有名詞、人名…例：Qwen、vLLM、Jensen Huang"
+                         ).pack(fill="x", padx=20, pady=(4, 14))
 
             def _make_row(parent, label: str, var: tk.IntVar, lo: int, hi: int):
                 row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -257,6 +259,7 @@ class SetupDialogTk:
             def _adv_ok():
                 en_size_var.set(tmp_en.get())
                 zh_size_var.set(tmp_zh.get())
+                context_var.set(tmp_context.get().strip())
                 popup.destroy()
 
             ctk.CTkButton(bf, text="取消", fg_color="transparent",
