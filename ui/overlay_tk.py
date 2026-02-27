@@ -20,9 +20,9 @@ class SubtitleOverlay:
         overlay.run()  # 阻塞，在主執行緒呼叫
     """
 
-    TOOLBAR_HEIGHT = 32
+    TOOLBAR_HEIGHT = 48
     DRAG_BAR_HEIGHT = 6
-    WINDOW_HEIGHT = 150
+    WINDOW_HEIGHT = 200
     WINDOW_WIDTH = 900           # 預設值，__init__ 會依螢幕動態覆蓋
     CORNER_SIZE = 20
     EDGE_SIZE = 6
@@ -120,7 +120,7 @@ class SubtitleOverlay:
                 parent,
                 textvariable=textvariable,
                 text=text,
-                font=("Segoe UI", 10),
+                font=("Segoe UI", 13),
                 fg=self.BTN_COLOR,
                 bg=self.BTN_BG,
                 activeforeground="#ffffff",

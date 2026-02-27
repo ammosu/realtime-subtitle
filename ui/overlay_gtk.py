@@ -24,9 +24,9 @@ class SubtitleOverlayGTK:
     - 文字使用黑色外框增加可讀性
     """
 
-    TOOLBAR_HEIGHT = 28
+    TOOLBAR_HEIGHT = 48
     DRAG_BAR_HEIGHT = 14
-    WINDOW_HEIGHT = 300
+    WINDOW_HEIGHT = 380
     CORNER_SIZE = 20
     EDGE_SIZE = 6
 
@@ -186,7 +186,7 @@ class SubtitleOverlayGTK:
         def draw_btn(text: str, x: int, key: str):
             layout = PangoCairo.create_layout(cr)
             layout.set_text(text, -1)
-            layout.set_font_description(Pango.FontDescription.from_string("Arial 10"))
+            layout.set_font_description(Pango.FontDescription.from_string("Arial 13"))
             pw, ph = layout.get_pixel_size()
             pad = 5
             bx, by, bw, bh = x - pad, 3, pw + pad * 2, ph + 4
