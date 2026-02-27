@@ -94,11 +94,17 @@ def main() -> None:
         "--direction" in _cli_args
     )
 
+    _monitor_hint: tuple | None = None
     if not _has_cli_config and not args.list_devices:
         _file_config = load_config()
         _settings = show_setup_dialog(_file_config)
         if _settings is None:
             return  # 使用者取消
+        # 提取對話框位置（暫存用，不寫進 config）
+        _dx = _settings.pop("_dialog_x", None)
+        _dy = _settings.pop("_dialog_y", None)
+        if _dx is not None and _dy is not None:
+            _monitor_hint = (_dx, _dy)
         save_config(_settings)
         # 把對話框結果回填進 args（後續程式碼繼續用 args.xxx）
         args.asr_server = _settings["asr_server"]
@@ -234,6 +240,7 @@ def main() -> None:
                 on_open_settings=on_open_settings,
                 show_raw=_show_raw,
                 show_corrected=_show_corrected,
+                monitor_hint=_monitor_hint,
             )
         else:
             overlay = SubtitleOverlay(
@@ -245,6 +252,7 @@ def main() -> None:
                 zh_font_size=_zh_font_size,
                 show_raw=_show_raw,
                 show_corrected=_show_corrected,
+                monitor_hint=_monitor_hint,
             )
     except Exception:
         log.exception("建立覆疊視窗失敗")

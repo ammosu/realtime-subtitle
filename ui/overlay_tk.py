@@ -43,7 +43,8 @@ class SubtitleOverlay:
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
                  en_font_size: int = 15, zh_font_size: int = 24,
-                 show_raw: bool = False, show_corrected: bool = True):
+                 show_raw: bool = False, show_corrected: bool = True,
+                 monitor_hint: tuple | None = None):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
@@ -54,14 +55,14 @@ class SubtitleOverlay:
 
         self._root = tk.Tk()
 
-        # 用 tkinter 取螢幕尺寸（不依賴 screeninfo）
-        screen_w = self._root.winfo_screenwidth()
-        screen_h = self._root.winfo_screenheight()
-        # 視窗寬度為螢幕的 80%（最小 900），高度固定
+        # 視窗尺寸與位置：若有 monitor_hint 則定位到提示座標所在的螢幕
+        mon_left, mon_top, mon_right, mon_bottom = self._resolve_monitor(monitor_hint)
+        screen_w = mon_right - mon_left
+        screen_h = mon_bottom - mon_top
         self._win_w = max(900, int(screen_w * 0.80))
         self._win_h = self.WINDOW_HEIGHT
-        self._x = (screen_w - self._win_w) // 2
-        self._y = screen_h - self._win_h - 40
+        self._x = mon_left + (screen_w - self._win_w) // 2
+        self._y = mon_bottom - self._win_h - 40
 
         self._root.wm_attributes("-topmost", True)
         if sys.platform == "win32":
@@ -169,6 +170,33 @@ class SubtitleOverlay:
         self._root.bind("<Escape>", lambda e: self._do_close())
         self._root.bind("<F9>", lambda e: self._toggle_direction())
         self._root.protocol("WM_DELETE_WINDOW", self._do_close)
+
+    def _resolve_monitor(self, hint: tuple | None) -> tuple[int, int, int, int]:
+        """回傳 (left, top, right, bottom)：hint 所在螢幕或主螢幕。"""
+        if hint and sys.platform == "win32":
+            try:
+                import ctypes
+                from ctypes import wintypes
+
+                class _MI(ctypes.Structure):
+                    _fields_ = [("cbSize", ctypes.c_uint),
+                                 ("rcMonitor", wintypes.RECT),
+                                 ("rcWork", wintypes.RECT),
+                                 ("dwFlags", ctypes.c_uint)]
+
+                pt = wintypes.POINT(*hint)
+                hmon = ctypes.windll.user32.MonitorFromPoint(pt, 2)
+                mi = _MI()
+                mi.cbSize = ctypes.sizeof(_MI)
+                ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mi))
+                r = mi.rcMonitor
+                return r.left, r.top, r.right, r.bottom
+            except Exception:
+                pass
+        # fallback：主螢幕
+        sw = self._root.winfo_screenwidth()
+        sh = self._root.winfo_screenheight()
+        return 0, 0, sw, sh
 
     def _apply_x11_opacity(self, alpha: float):
         """透過 xprop 設定 X11 _NET_WM_WINDOW_OPACITY，適用於 overrideredirect 視窗。"""

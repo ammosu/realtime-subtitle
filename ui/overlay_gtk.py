@@ -31,7 +31,8 @@ class SubtitleOverlayGTK:
     EDGE_SIZE = 6
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
-                 show_raw: bool = False, show_corrected: bool = True):
+                 show_raw: bool = False, show_corrected: bool = True,
+                 monitor_hint: tuple | None = None):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
@@ -60,15 +61,19 @@ class SubtitleOverlayGTK:
             self._win.set_visual(rgba)
         self._win.set_app_paintable(True)
 
-        # 視窗尺寸與位置
+        # 視窗尺寸與位置：monitor_hint 所在螢幕，否則螢幕 0
         display = Gdk.Display.get_default()
-        mon = display.get_monitor(0)
+        try:
+            mon = display.get_monitor_at_point(*monitor_hint) if monitor_hint else display.get_monitor(0)
+        except Exception:
+            mon = display.get_monitor(0)
         geo = mon.get_geometry()
         sw, sh = geo.width, geo.height
+        ox, oy = geo.x, geo.y   # 螢幕左上角的絕對座標
         ww = max(900, int(sw * 0.80))
         wh = self.WINDOW_HEIGHT
         self._win.set_default_size(ww, wh)
-        self._win.move((sw - ww) // 2, sh - wh - 40)
+        self._win.move(ox + (sw - ww) // 2, oy + sh - wh - 40)
 
         # DrawingArea：接收所有輸入事件
         da = Gtk.DrawingArea()

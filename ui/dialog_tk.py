@@ -344,6 +344,8 @@ class SetupDialogTk:
                 "zh_font_size": zh_size_var.get(),
                 "show_raw": show_raw_var.get(),
                 "show_corrected": show_corrected_var.get(),
+                "_dialog_x": root.winfo_x(),
+                "_dialog_y": root.winfo_y(),
             }
             root.destroy()
 
@@ -541,6 +543,8 @@ class SetupDialogTk:
                 "zh_font_size": zh_size_var.get(),
                 "show_raw": show_raw_var.get(),
                 "show_corrected": show_corrected_var.get(),
+                "_dialog_x": root.winfo_x(),
+                "_dialog_y": root.winfo_y(),
             }
             root.destroy()
 

@@ -351,5 +351,9 @@ class SetupDialogGTK:
             }
             break
 
+        if self._result:
+            wx, wy = win.get_position()
+            self._result["_dialog_x"] = wx
+            self._result["_dialog_y"] = wy
         win.destroy()
         return self._result
