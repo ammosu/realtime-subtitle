@@ -80,6 +80,9 @@ def main() -> None:
                         help="麥克風裝置名稱或索引（None = 系統預設麥克風）")
     parser.add_argument("--direction", default="en→zh",
                         help="Initial translation direction, e.g. en→zh, zh→en, ja→en")
+    parser.add_argument("--context", default="",
+                        help="ASR 辨識提示詞，列出專有名詞、人名等可提升辨識準確度，"
+                             "例如：'Qwen、vLLM、RAG、LangChain'")
     args = parser.parse_args()
 
     # CLI 是否已明確指定核心設定（可略過對話框）
@@ -103,6 +106,7 @@ def main() -> None:
         args.direction = _settings["direction"]
         args.source = _settings.get("source", "monitor")
         args.mic_device = _settings.get("mic_device", "")
+        args.context = _settings.get("context", args.context)
         # dialog 填入的 key 優先，其次是 CLI/環境變數
         if _settings.get("openai_api_key"):
             args.openai_api_key = _settings["openai_api_key"]
@@ -123,6 +127,7 @@ def main() -> None:
         "monitor_device": args.monitor_device,
         "mic_device": args.mic_device,
         "direction": args.direction,
+        "context": args.context,
     }
 
     # 準備 IPC queues（用 SimpleQueue，不會在主程序產生 feeder 背景執行緒）
@@ -148,6 +153,7 @@ def main() -> None:
         "source": args.source,
         "direction": args.direction,
         "openai_api_key": args.openai_api_key,
+        "context": args.context,
     }
 
     # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
@@ -198,7 +204,7 @@ def main() -> None:
 
         # 用新設定重啟 worker
         new_cfg = dict(cfg)
-        for k in ("asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key"):
+        for k in ("asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key", "context"):
             if k in _current_config:
                 new_cfg[k] = _current_config[k]
         worker_ref[0] = _start_worker(new_cfg)

@@ -69,6 +69,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     asr = ASRClient(cfg["asr_server"])
     _src_lang, _ = parse_direction(cfg.get("direction", ""))
     _asr_lang = _src_lang if _src_lang else None  # 傳給 ASR server 的語言提示
+    _asr_context = cfg.get("context", "")          # 傳給 ASR server 的辨識提示詞
 
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
@@ -194,7 +195,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 continue
 
             try:
-                result = asr.transcribe(audio, language=_asr_lang)
+                result = asr.transcribe(audio, language=_asr_lang, context=_asr_context)
                 language = result.get("language", "")
                 text = _to_traditional(result.get("text", ""), language)
 

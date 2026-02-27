@@ -90,6 +90,13 @@ class SetupDialogTk:
         ctk.CTkEntry(body, textvariable=url_var, height=36, font=_noto_sm,
                      placeholder_text="http://localhost:8000").pack(fill="x", pady=(4, 14))
 
+        # 辨識提示詞
+        ctk.CTkLabel(body, text="辨識提示詞（選填）", font=_noto_sm,
+                     text_color="#9ca3af", anchor="w").pack(fill="x")
+        context_var = tk.StringVar(value=self._config.get("context", ""))
+        ctk.CTkEntry(body, textvariable=context_var, height=36, font=_noto_sm,
+                     placeholder_text="專有名詞、人名…例：Qwen、vLLM、Jensen Huang").pack(fill="x", pady=(4, 14))
+
         # 音訊來源
         ctk.CTkLabel(body, text="音訊來源", font=_noto_sm,
                      text_color="#9ca3af", anchor="w").pack(fill="x")
@@ -292,6 +299,7 @@ class SetupDialogTk:
                 "mic_device": mic_device_var.get().strip(),
                 "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
                 "openai_api_key": api_key,
+                "context": context_var.get().strip(),
                 "en_font_size": en_size_var.get(),
                 "zh_font_size": zh_size_var.get(),
             }
@@ -344,6 +352,10 @@ class SetupDialogTk:
         key_var = tk.StringVar(value=self._config.get("openai_api_key", ""))
         tk.Entry(root, textvariable=key_var, show="*", width=48).pack(**pad)
 
+        tk.Label(root, text="辨識提示詞（選填）", anchor="w").pack(fill="x", **pad)
+        context_var = tk.StringVar(value=self._config.get("context", ""))
+        tk.Entry(root, textvariable=context_var, width=48).pack(**pad)
+
         tk.Label(root, text="翻譯方向", anchor="w").pack(fill="x", **pad)
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         src_var = tk.StringVar(value=lang_code_to_label(_src0))
@@ -374,6 +386,7 @@ class SetupDialogTk:
                 "monitor_device": device_var.get().strip(),
                 "direction": f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
                 "openai_api_key": api_key,
+                "context": context_var.get().strip(),
             }
             root.destroy()
 

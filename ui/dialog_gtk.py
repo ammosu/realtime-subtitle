@@ -113,6 +113,14 @@ class SetupDialogGTK:
         url_entry.set_activates_default(True)
         body.add(url_entry)
 
+        # 辨識提示詞
+        _add_label("辨識提示詞（選填）")
+        context_entry = Gtk.Entry()
+        context_entry.set_text(self._config.get("context", ""))
+        context_entry.set_placeholder_text("專有名詞、人名…例：Qwen、vLLM、Jensen Huang")
+        context_entry.set_activates_default(True)
+        body.add(context_entry)
+
         # 音訊來源：系統音訊 / 麥克風 切換
         _add_label("音訊來源")
         _saved_source = self._config.get("source", "monitor")
@@ -296,6 +304,7 @@ class SetupDialogGTK:
                 "mic_device": mic_combo.get_child().get_text().strip(),
                 "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
                 "openai_api_key": key_entry.get_text().strip(),
+                "context": context_entry.get_text().strip(),
                 "en_font_size": _en_font_size[0],
                 "zh_font_size": _zh_font_size[0],
             }
