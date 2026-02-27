@@ -150,8 +150,9 @@ class TranslationDebouncer:
                 'Return format: {"corrected": "corrected Chinese", "translated": "English translation"}'
             )
         else:
-            src_name = LANG_NAME.get(src, src)
-            tgt_name = LANG_NAME.get(tgt, tgt)
+            _ZH_PROMPT = "繁體中文（台灣口語）"
+            src_name = _ZH_PROMPT if src == "zh" else LANG_NAME.get(src, src)
+            tgt_name = _ZH_PROMPT if tgt == "zh" else LANG_NAME.get(tgt, tgt)
             system_msg = (
                 f"You are a real-time subtitle translator. The input is raw ASR text.\n"
                 f"Please do two things and return JSON:\n"

@@ -145,6 +145,15 @@ def main() -> None:
     def on_switch_source() -> None:
         cmd_q.put("switch_source")
 
+    # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
+    log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
+    use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
+    _cfg_fonts = load_config()
+    _en_font_size = int(_cfg_fonts.get("en_font_size", 15))
+    _zh_font_size = int(_cfg_fonts.get("zh_font_size", 24))
+    _show_raw = bool(_cfg_fonts.get("show_raw", False))
+    _show_corrected = bool(_cfg_fonts.get("show_corrected", True))
+
     # current_config 供設定 dialog 預填
     _current_config = {
         "asr_server": args.asr_server,
@@ -154,14 +163,9 @@ def main() -> None:
         "direction": args.direction,
         "openai_api_key": args.openai_api_key,
         "context": args.context,
+        "show_raw": _show_raw,
+        "show_corrected": _show_corrected,
     }
-
-    # 建立覆疊視窗（在 fork 之前完成 X11/GTK 初始化）
-    log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
-    use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
-    _cfg_fonts = load_config()
-    _en_font_size = int(_cfg_fonts.get("en_font_size", 15))
-    _zh_font_size = int(_cfg_fonts.get("zh_font_size", 24))
 
     def _drain_queue(q: multiprocessing.SimpleQueue) -> None:
         """清空 SimpleQueue 中的殘留訊息。"""
@@ -212,9 +216,12 @@ def main() -> None:
                  new_cfg["asr_server"], new_cfg["monitor_device"], new_cfg["direction"])
 
         # 清空字幕畫面 + 同步 UI 標籤
+        _last_raw[0] = ""
         _last_original[0] = ""
         _last_translated[0] = ""
-        overlay.set_text("", "")
+        overlay._show_raw = new_settings.get("show_raw", overlay._show_raw)
+        overlay._show_corrected = new_settings.get("show_corrected", overlay._show_corrected)
+        overlay.set_text(raw="", original="", translated="")
         overlay.update_direction_label(current_direction[0])
         overlay.update_source_label(_current_config.get("source", "monitor"))
 
@@ -225,6 +232,8 @@ def main() -> None:
                 on_toggle_direction=on_toggle,
                 on_switch_source=on_switch_source,
                 on_open_settings=on_open_settings,
+                show_raw=_show_raw,
+                show_corrected=_show_corrected,
             )
         else:
             overlay = SubtitleOverlay(
@@ -234,6 +243,8 @@ def main() -> None:
                 on_open_settings=on_open_settings,
                 en_font_size=_en_font_size,
                 zh_font_size=_zh_font_size,
+                show_raw=_show_raw,
+                show_corrected=_show_corrected,
             )
     except Exception:
         log.exception("建立覆疊視窗失敗")
@@ -245,6 +256,7 @@ def main() -> None:
     # 用 list 包裝，讓 on_open_settings closure 可以重新賦值
     worker_ref: list = [_start_worker(cfg)]
 
+    _last_raw        = [""]  # 保留上一筆原始辨識，供 show_raw 顯示
     _last_original   = [""]  # 保留上一筆原文，翻譯到來時不清掉
     _last_translated = [""]  # 保留上一筆翻譯，直到新翻譯到來才替換
 
@@ -255,6 +267,13 @@ def main() -> None:
                 overlay.update_direction_label(msg["direction"])
             elif "source" in msg:
                 overlay.update_source_label(msg["source"])
+            elif "raw" in msg:
+                _last_raw[0] = msg["raw"]
+                overlay.set_text(
+                    raw=_last_raw[0],
+                    original=_last_original[0],
+                    translated=_last_translated[0],
+                )
             else:
                 # "original" 出現時更新原文；"translated" 出現時更新翻譯
                 # 兩者各自獨立，互不清除
@@ -263,6 +282,7 @@ def main() -> None:
                 if msg.get("translated"):
                     _last_translated[0] = msg["translated"]
                 overlay.set_text(
+                    raw=_last_raw[0],
                     original=_last_original[0],
                     translated=_last_translated[0],
                 )

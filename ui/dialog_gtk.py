@@ -194,6 +194,8 @@ class SetupDialogGTK:
         _en_font_size = [int(self._config.get("en_font_size", 15))]
         _zh_font_size = [int(self._config.get("zh_font_size", 24))]
         _context = [self._config.get("context", "")]
+        _show_raw = [bool(self._config.get("show_raw", False))]
+        _show_corrected = [bool(self._config.get("show_corrected", True))]
 
         def _open_adv(_btn):
             adv = Gtk.Dialog(title="進階設定", flags=0, transient_for=win, modal=True)
@@ -230,6 +232,16 @@ class SetupDialogGTK:
             adv_context.set_placeholder_text("專有名詞、人名…例：Qwen、vLLM、Jensen Huang")
             adv_body.add(adv_context)
 
+            adv_raw_label = Gtk.Label(label="原文顯示", xalign=0)
+            adv_raw_label.get_style_context().add_class("field-label")
+            adv_body.add(adv_raw_label)
+            show_corrected_cb = Gtk.CheckButton(label="顯示校正後 ASR 原文")
+            show_corrected_cb.set_active(_show_corrected[0])
+            adv_body.add(show_corrected_cb)
+            show_raw_cb = Gtk.CheckButton(label="顯示原始 ASR 辨識")
+            show_raw_cb.set_active(_show_raw[0])
+            adv_body.add(show_raw_cb)
+
             _add_adv_label("辨識字體大小（原文）")
             en_row, en_scale = _make_slider(10, 30, _en_font_size[0])
             adv_body.add(en_row)
@@ -244,12 +256,17 @@ class SetupDialogGTK:
             preview.set_shadow_type(Gtk.ShadowType.IN)
             pv_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             pv_box.set_border_width(10)
-            pv_en = Gtk.Label(label="Hello, this is a subtitle preview.", xalign=0)
+            _PREVIEW_TEXT = "Hello, this is a subtitle preview."
+            pv_raw = Gtk.Label(label=_PREVIEW_TEXT, xalign=0)
+            pv_en = Gtk.Label(label=_PREVIEW_TEXT, xalign=0)
             pv_zh = Gtk.Label(label="這是即時字幕的預覽文字。", xalign=0)
+            pv_raw.set_line_wrap(True)
             pv_en.set_line_wrap(True)
             pv_zh.set_line_wrap(True)
 
             def _update_preview(*_):
+                pv_raw.override_font(
+                    Pango.FontDescription.from_string(f"Sans {int(en_scale.get_value())}"))
                 pv_en.override_font(
                     Pango.FontDescription.from_string(f"Sans {int(en_scale.get_value())}"))
                 pv_zh.override_font(
@@ -259,6 +276,22 @@ class SetupDialogGTK:
             zh_scale.connect("value-changed", _update_preview)
             _update_preview()
 
+            def _on_raw_toggle(cb):
+                if cb.get_active():
+                    pv_raw.show()
+                else:
+                    pv_raw.hide()
+
+            def _on_corrected_toggle(cb):
+                if cb.get_active():
+                    pv_en.show()
+                else:
+                    pv_en.hide()
+
+            show_raw_cb.connect("toggled", _on_raw_toggle)
+            show_corrected_cb.connect("toggled", _on_corrected_toggle)
+
+            pv_box.add(pv_raw)
             pv_box.add(pv_en)
             pv_box.add(pv_zh)
             preview.add(pv_box)
@@ -266,11 +299,16 @@ class SetupDialogGTK:
 
             adv.get_content_area().add(adv_body)
             adv.show_all()
+            # show_all 後依 checkbox 狀態決定預覽可見性
+            _on_raw_toggle(show_raw_cb)
+            _on_corrected_toggle(show_corrected_cb)
 
             if adv.run() == Gtk.ResponseType.OK:
                 _en_font_size[0] = int(en_scale.get_value())
                 _zh_font_size[0] = int(zh_scale.get_value())
                 _context[0] = adv_context.get_text().strip()
+                _show_raw[0] = show_raw_cb.get_active()
+                _show_corrected[0] = show_corrected_cb.get_active()
                 _hint = f"  ✎ {_context[0][:12]}…" if len(_context[0]) > 12 else (f"  ✎ {_context[0]}" if _context[0] else "")
                 adv_btn.set_label(f"⚙ 進階設定  （原文 {_en_font_size[0]}pt / 翻譯 {_zh_font_size[0]}pt{_hint}）")
             adv.destroy()
@@ -308,6 +346,8 @@ class SetupDialogGTK:
                 "context": _context[0],
                 "en_font_size": _en_font_size[0],
                 "zh_font_size": _zh_font_size[0],
+                "show_raw": _show_raw[0],
+                "show_corrected": _show_corrected[0],
             }
             break
 

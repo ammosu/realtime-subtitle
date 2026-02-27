@@ -30,10 +30,14 @@ class SubtitleOverlayGTK:
     CORNER_SIZE = 20
     EDGE_SIZE = 6
 
-    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None):
+    def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
+                 show_raw: bool = False, show_corrected: bool = True):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
+        self._show_raw = show_raw
+        self._show_corrected = show_corrected
+        self._raw_str = ""
         self._en_str = ""
         self._zh_str = ""
         self._direction_label = "EN→ZH ⇄"
@@ -134,16 +138,25 @@ class SubtitleOverlayGTK:
             cr.fill()
             self._draw_toolbar(cr, w)
 
-        # EN 字幕（黃色）
         ty = self.DRAG_BAR_HEIGHT + 12
-        en_h = self._text_height(cr, self._en_str, max_w, "Arial 15")
-        self._draw_outlined_text(cr, self._en_str, 20, ty, max_w,
-                                 (1.0, 0.87, 0.3), "Arial 15")
 
-        # ZH 字幕（白色）— 動態定位於 EN 文字正下方
-        zh_y = ty + en_h + (8 if en_h > 0 else 0)
+        # RAW 字幕（中灰色）— 若 show_raw 開啟，顯示於最上方
+        if self._show_raw and self._raw_str:
+            raw_h = self._text_height(cr, self._raw_str, max_w, "Arial 15")
+            self._draw_outlined_text(cr, self._raw_str, 20, ty, max_w,
+                                     (0.502, 0.502, 0.502), "Arial 15")
+            ty += raw_h + (6 if raw_h > 0 else 0)
+
+        # EN 字幕（校正後）— 若 show_corrected 開啟才繪製
+        if self._show_corrected:
+            en_h = self._text_height(cr, self._en_str, max_w, "Arial 15")
+            self._draw_outlined_text(cr, self._en_str, 20, ty, max_w,
+                                     (1.0, 0.87, 0.3), "Arial 15")
+            ty += en_h + (8 if en_h > 0 else 0)
+
+        # ZH 字幕（白色）— 動態定位於上方文字正下方
         zh_h = self._text_height(cr, self._zh_str, max_w, "Noto Sans CJK TC Bold 22")
-        self._draw_outlined_text(cr, self._zh_str, 20, zh_y, max_w,
+        self._draw_outlined_text(cr, self._zh_str, 20, ty, max_w,
                                  (1.0, 1.0, 1.0), "Noto Sans CJK TC Bold 22")
 
 
@@ -384,8 +397,9 @@ class SubtitleOverlayGTK:
             return False
         GLib.idle_add(_u)
 
-    def set_text(self, original: str = "", translated: str = ""):
+    def set_text(self, raw: str = "", original: str = "", translated: str = ""):
         def _u():
+            self._raw_str = raw
             self._en_str = original
             self._zh_str = translated
             self._da.queue_draw()

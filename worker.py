@@ -215,7 +215,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 if text and text != current_original:
                     current_original = text
                     # 顯示：只送最新一段原文（避免原文過長）
-                    text_q.put({"original": text, "translated": ""})
+                    text_q.put({"raw": text})
                     # 翻譯：用合併版，涵蓋前後段落
                     debouncer.update(_accumulated_for_translation)
 

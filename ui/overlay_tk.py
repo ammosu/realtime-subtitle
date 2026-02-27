@@ -42,12 +42,15 @@ class SubtitleOverlay:
     DISCLAIMER_FONT = (_FONT_FAMILY, 10)
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
-                 en_font_size: int = 15, zh_font_size: int = 24):
+                 en_font_size: int = 15, zh_font_size: int = 24,
+                 show_raw: bool = False, show_corrected: bool = True):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
         self.EN_FONT = (self._FONT_FAMILY, en_font_size)
         self.ZH_FONT = (self._FONT_FAMILY, zh_font_size)
+        self._show_raw = show_raw
+        self._show_corrected = show_corrected
 
         self._root = tk.Tk()
 
@@ -156,6 +159,7 @@ class SubtitleOverlay:
         self._toolbar.bind("<ButtonPress-1>", self._on_bar_press)
         self._toolbar.bind("<B1-Motion>", self._do_drag)
 
+        self._raw_str = ""
         self._en_str = ""
         self._zh_str = ""
         self._drag_x = 0
@@ -333,11 +337,12 @@ class SubtitleOverlay:
         label = "🎤 Mic" if source == "mic" else "🔊 Monitor"
         self._root.after(0, lambda: self._src_btn_var.set(label))
 
-    def set_text(self, original: str = "", translated: str = ""):
+    def set_text(self, raw: str = "", original: str = "", translated: str = ""):
         """從任意執行緒安全地更新字幕（用 after() 排程到主執行緒）。"""
         def _update():
-            self._en_str = original[-120:] if len(original) > 120 else original
-            self._zh_str = translated[-60:] if len(translated) > 60 else translated
+            self._raw_str = raw
+            self._en_str = original
+            self._zh_str = translated
             self._redraw_text()
         self._root.after(0, _update)
 
@@ -349,18 +354,31 @@ class SubtitleOverlay:
         h = self._canvas.winfo_height() or self._root.winfo_height()
         wrap_w = max(200, w - 60)
 
-        ex, ey = 24, 14
+        ex, cur_y = 24, 14
 
-        # EN — 4方向描邊 + 主色
-        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            self._canvas.create_text(ex+ox, ey+oy, text=self._en_str,
-                                     fill=self.OUTLINE_COLOR, font=self.EN_FONT,
-                                     anchor="nw", width=wrap_w, tags="text")
-        self._canvas.create_text(ex, ey, text=self._en_str, fill=self.EN_COLOR,
-                                 font=self.EN_FONT, anchor="nw", width=wrap_w, tags="text")
+        def _draw_layer(text, fill, font):
+            """畫一層文字（主色 + 描邊），回傳下一層的起始 y。"""
+            item = self._canvas.create_text(ex, cur_y, text=text, fill=fill,
+                                            font=font, anchor="nw", width=wrap_w, tags="text")
+            bbox = self._canvas.bbox(item)
+            bottom = bbox[3] if bbox else cur_y + 20
+            for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                self._canvas.create_text(ex+ox, cur_y+oy, text=text,
+                                         fill=self.OUTLINE_COLOR, font=font,
+                                         anchor="nw", width=wrap_w, tags="text")
+            self._canvas.tag_raise(item)
+            return bottom
 
-        # ZH — 4方向描邊 + 主色
-        zy = ey + 36
+        # RAW — 若 show_raw 開啟，在最上方繪製原始辨識文字（灰色）
+        if self._show_raw and self._raw_str:
+            cur_y = _draw_layer(self._raw_str, "#808080", self.EN_FONT) + 6
+
+        # EN（校正後）— 若 show_corrected 開啟才繪製
+        if self._show_corrected:
+            cur_y = _draw_layer(self._en_str, self.EN_COLOR, self.EN_FONT) + 8
+
+        # ZH — 起始 y 跟著上方文字實際底部
+        zy = cur_y
         for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
             self._canvas.create_text(ex+ox, zy+oy, text=self._zh_str,
                                      fill=self.OUTLINE_COLOR, font=self.ZH_FONT,
