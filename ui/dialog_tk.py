@@ -47,11 +47,14 @@ class SetupDialogTk:
         if parent is not None:
             root = ctk.CTkToplevel(parent)
             root.attributes("-topmost", True)
+            parent.update_idletasks()
+            root.geometry(f"460x600+{parent.winfo_x()}+{parent.winfo_y()}")
         else:
             root = ctk.CTk()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
-        root.geometry("460x600")
+        if parent is None:
+            root.geometry("460x600")
         root.grab_set()
 
         _noto_sm = ctk.CTkFont(family="Noto Sans TC SemiBold", size=12)
@@ -374,6 +377,8 @@ class SetupDialogTk:
         if parent is not None:
             root = tk.Toplevel(parent)
             root.attributes("-topmost", True)
+            parent.update_idletasks()
+            root.geometry(f"+{parent.winfo_x()}+{parent.winfo_y()}")
         else:
             root = tk.Tk()
         root.title("Real-time Subtitle — 設定")
