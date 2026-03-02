@@ -52,7 +52,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     current_original = ""
 
     def on_translation(corrected: str, translated: str) -> None:
-        text_q.put({"original": corrected, "translated": translated})
+        text_q.put({"original": _to_traditional(corrected, ""), "translated": translated})
 
     debouncer = TranslationDebouncer(
         api_key=cfg["openai_api_key"],
@@ -201,13 +201,16 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         def _handle_result(result: dict, is_final: bool) -> None:
             """
             處理 ASR 結果：
-            - 中間結果：只更新原文顯示，不翻譯
-            - 最終結果：合併相鄰片段；有句尾標點或累積過長才送翻譯
+            - 中間結果：只更新原文顯示，不翻譯（重複文字跳過）
+            - 最終結果：合併相鄰片段後送翻譯；句尾標點或超長時清空累積
             """
             nonlocal current_original, _last_asr_time, _accumulated_for_translation
             language = result.get("language", "")
             text = _to_traditional(result.get("text", ""), language)
-            if not text or text == current_original:
+            if not text:
+                return
+            # 中間結果：重複則跳過；最終結果：即使與上次 interim 相同也要處理（避免漏翻）
+            if not is_final and text == current_original:
                 return
             current_original = text
             text_q.put({"raw": text})
@@ -220,19 +223,18 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 else:
                     _accumulated_for_translation = text
                 _last_asr_time = now
-                # 只在句尾標點或累積過長時才送翻譯，避免翻到半句話
                 ends_with_sentence = bool(
                     _accumulated_for_translation
                     and _accumulated_for_translation[-1] in SENTENCE_ENDINGS
                 )
                 force_translate = len(_accumulated_for_translation) >= CONCAT_MAX_CHARS
+                # 每次 final 都送翻譯（debouncer 會 debounce 頻繁呼叫）
+                # 句尾或超長才清空累積，讓下一段從頭開始
+                reason = "句尾" if ends_with_sentence else ("保底" if force_translate else "即時")
+                print(f"[ASR] final [{reason}] lang={language!r} acc={_accumulated_for_translation!r}", flush=True)
+                debouncer.update(_accumulated_for_translation)
                 if ends_with_sentence or force_translate:
-                    reason = "句尾" if ends_with_sentence else "保底"
-                    print(f"[ASR] final [{reason}] lang={language!r} acc={_accumulated_for_translation!r}", flush=True)
-                    debouncer.update(_accumulated_for_translation)
-                    _accumulated_for_translation = ""  # 送出後清空，避免重複累積
-                else:
-                    print(f"[ASR] final [等待句尾] lang={language!r} text={text!r}", flush=True)
+                    _accumulated_for_translation = ""
             else:
                 print(f"[ASR] interim lang={language!r} text={text!r}", flush=True)
 

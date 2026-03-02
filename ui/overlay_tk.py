@@ -36,6 +36,8 @@ class SubtitleOverlay:
     EN_COLOR = "#e0e0e0"         # 淡灰英文
     ZH_COLOR = "#ffffff"
     OUTLINE_COLOR = "#060606"    # 近黑描邊
+    SUBTITLE_BG    = "#c0c0c0"   # 字幕底板：淺灰色（非黑，不會被 transparentcolor 穿透）
+    SUBTITLE_ALPHA = 0.82        # 視窗整體透明度（讓底板呈半透明效果）
     _FONT_FAMILY = "Noto Sans TC SemiBold"
     DISCLAIMER_TEXT = "安富財經科技 ｜ AI 即時辨識，內容僅供參考"
     DISCLAIMER_COLOR = "#606060"
@@ -68,6 +70,7 @@ class SubtitleOverlay:
         if sys.platform == "win32":
             self._root.overrideredirect(True)
             self._root.wm_attributes("-transparentcolor", self.BG_COLOR)
+            self._root.wm_attributes("-alpha", self.SUBTITLE_ALPHA)
         else:
             # Linux：用 splash 類型讓 Mutter compositor 套用透明度
             # overrideredirect 的視窗不受 WM 管理，compositor 不對其合成
@@ -418,10 +421,23 @@ class SubtitleOverlay:
         self._canvas.create_text(ex, zy, text=self._zh_str, fill=self.ZH_COLOR,
                                  font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
 
+        # 字幕底板：在字幕文字背後疊淺灰底板（免責聲明前取 bbox，避免框住整個 canvas）
+        has_text = bool(self._en_str or self._zh_str or (self._show_raw and self._raw_str))
+        subtitle_bbox = self._canvas.bbox("text") if has_text else None
+
         # 免責聲明 — 右下角（無描邊，純色）
         self._canvas.create_text(w - 10, h - 6, text=self.DISCLAIMER_TEXT,
                                  fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
                                  anchor="se", tags="text")
+
+        if subtitle_bbox:
+            pad = 10
+            bg = self._canvas.create_rectangle(
+                max(0, subtitle_bbox[0] - pad), max(0, subtitle_bbox[1] - pad),
+                min(w, subtitle_bbox[2] + pad), min(h, subtitle_bbox[3] + pad),
+                fill=self.SUBTITLE_BG, outline="", tags="text",
+            )
+            self._canvas.tag_lower(bg)
 
     def run(self):
         """啟動 tkinter mainloop（阻塞，必須在主執行緒呼叫）。"""

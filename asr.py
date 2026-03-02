@@ -37,7 +37,7 @@ class ASRClient:
             data=audio_float32.tobytes(),
             headers={"Content-Type": "application/octet-stream"},
             params=params or None,
-            timeout=45,
+            timeout=15,
         )
         r.raise_for_status()
         return r.json()
