@@ -138,7 +138,7 @@ Both overlay classes expose the same public interface: `set_text()`, `update_dir
 Shown on startup when no CLI core args are provided. Both expose `.run() → dict | None`.
 
 - **`SetupDialogGTK`** — GTK3, Linux (preferred when `_GTK3_AVAILABLE=True`).
-- **`SetupDialogTk`** — Windows/fallback Linux. Uses CustomTkinter dark theme when available (`customtkinter` installed); falls back to plain tkinter. 從 overlay 開啟時（`run_as_toplevel`）以 `parent.winfo_x/y()` 定位，確保出現在 overlay 所在的螢幕上。
+- **`SetupDialogTk`** — plain-tkinter fallback（wxPython 不可用時使用）。
 - **`show_setup_dialog(config)`** — dispatcher: GTK3 (Linux) → wxPython (Windows) → plain tkinter (fallback).
 
 ### Config persistence

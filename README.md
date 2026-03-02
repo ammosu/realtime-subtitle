@@ -27,7 +27,7 @@
 ### 3. 安裝 Python 套件
 
 ```powershell
-pip install sounddevice numpy scipy requests openai onnxruntime pyaudiowpatch opencc-python-reimplemented customtkinter
+pip install sounddevice numpy scipy requests openai onnxruntime pyaudiowpatch opencc-python-reimplemented wxPython
 ```
 
 > `pyaudiowpatch` 是 Windows WASAPI Loopback 音訊擷取的核心套件，用於擷取系統播放音。
@@ -51,6 +51,7 @@ ui/
   __init__.py
   overlay_tk.py
   overlay_gtk.py
+  dialog_wx.py
   dialog_tk.py
   dialog_gtk.py
 ```
