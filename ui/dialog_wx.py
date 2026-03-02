@@ -229,7 +229,7 @@ class _SetupWxDlg(wx.Dialog):
     """Main setup dialog (wx)."""
 
     def __init__(self, parent, config: dict, initial_pos=None):
-        super().__init__(parent, title="Real-time Subtitle",
+        super().__init__(parent, title="LiveSub+",
                          style=wx.DEFAULT_DIALOG_STYLE | wx.STAY_ON_TOP)
         self.result = None
         self._config = config
@@ -275,7 +275,7 @@ class _SetupWxDlg(wx.Dialog):
         header = wx.Panel(self)
         header.SetBackgroundColour(_HEADER)
         h_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        title_lbl = _dark(wx.StaticText(header, label="⚡  Real-time Subtitle"),
+        title_lbl = _dark(wx.StaticText(header, label="⚡  LiveSub+"),
                           fg=_ACCENT)
         f = title_lbl.GetFont()
         f.SetPointSize(14)

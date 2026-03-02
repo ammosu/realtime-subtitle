@@ -59,7 +59,7 @@ class SetupDialogGTK:
         )
 
         # ── 視窗 ────────────────────────────────────────────────────────
-        win = Gtk.Dialog(title="Real-time Subtitle", flags=0)
+        win = Gtk.Dialog(title="LiveSub+", flags=0)
         win.set_default_size(460, -1)
         win.set_border_width(0)
         win.set_resizable(False)
@@ -76,7 +76,7 @@ class SetupDialogGTK:
         header_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         header_box.get_style_context().add_class("app-header")
         title_lbl = Gtk.Label(xalign=0)
-        title_lbl.set_markup('<span size="large" weight="bold">⚡  Real-time Subtitle</span>')
+        title_lbl.set_markup('<span size="large" weight="bold">⚡  LiveSub+</span>')
         header_box.add(title_lbl)
         outer.add(header_box)
 

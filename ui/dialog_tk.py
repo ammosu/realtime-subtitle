@@ -32,7 +32,7 @@ class SetupDialogTk:
             root.geometry(f"+{parent.winfo_x()}+{parent.winfo_y()}")
         else:
             root = tk.Tk()
-        root.title("Real-time Subtitle — 設定")
+        root.title("LiveSub+ — 設定")
         root.resizable(False, False)
         root.grab_set()
 

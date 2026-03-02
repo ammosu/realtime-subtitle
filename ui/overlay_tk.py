@@ -36,10 +36,10 @@ class SubtitleOverlay:
     EN_COLOR = "#e0e0e0"         # 淡灰英文
     ZH_COLOR = "#ffffff"
     OUTLINE_COLOR = "#060606"    # 近黑描邊
-    SUBTITLE_BG    = "#c0c0c0"   # 字幕底板：淺灰色（非黑，不會被 transparentcolor 穿透）
-    SUBTITLE_ALPHA = 0.82        # 視窗整體透明度（讓底板呈半透明效果）
+    SUBTITLE_BG       = "#404040"   # 字幕底板顏色
+    SUBTITLE_BG_ALPHA = 0.65        # 字幕底板視窗透明度（文字視窗不受影響）
     _FONT_FAMILY = "Noto Sans TC SemiBold"
-    DISCLAIMER_TEXT = "安富財經科技 ｜ AI 即時辨識，內容僅供參考"
+    DISCLAIMER_TEXT = "LiveSub+ Beta by Anfu Solutions ｜ AI real-time transcription · for reference only"
     DISCLAIMER_COLOR = "#606060"
     DISCLAIMER_FONT = (_FONT_FAMILY, 10)
 
@@ -70,7 +70,6 @@ class SubtitleOverlay:
         if sys.platform == "win32":
             self._root.overrideredirect(True)
             self._root.wm_attributes("-transparentcolor", self.BG_COLOR)
-            self._root.wm_attributes("-alpha", self.SUBTITLE_ALPHA)
         else:
             # Linux：用 splash 類型讓 Mutter compositor 套用透明度
             # overrideredirect 的視窗不受 WM 管理，compositor 不對其合成
@@ -172,6 +171,18 @@ class SubtitleOverlay:
         self._root.bind("<F9>", lambda e: self._toggle_direction())
         self._root.protocol("WM_DELETE_WINDOW", self._do_close)
 
+        # ── 字幕底板視窗（Windows only）：獨立半透明視窗疊在文字視窗後方 ──
+        # 文字視窗本身不設 -alpha，確保文字完全不透明
+        self._bg_win = None
+        self._last_subtitle_bbox = None
+        if sys.platform == "win32":
+            self._bg_win = tk.Toplevel(self._root)
+            self._bg_win.overrideredirect(True)
+            self._bg_win.wm_attributes("-topmost", True)
+            self._bg_win.wm_attributes("-alpha", self.SUBTITLE_BG_ALPHA)
+            self._bg_win.configure(bg=self.SUBTITLE_BG)
+            self._bg_win.withdraw()
+
     def _resolve_monitor(self, hint: tuple | None) -> tuple[int, int, int, int]:
         """回傳 (left, top, right, bottom)：hint 所在螢幕或主螢幕。"""
         if hint and sys.platform == "win32":
@@ -213,8 +224,35 @@ class SubtitleOverlay:
         except Exception:
             pass
 
+    def _place_bg_win(self, subtitle_bbox):
+        """將底板視窗定位到字幕文字區域後方。"""
+        if self._bg_win is None:
+            return
+        if not subtitle_bbox:
+            self._bg_win.withdraw()
+            return
+        pad = 10
+        x1, y1, x2, y2 = subtitle_bbox
+        win_x = self._root.winfo_x()
+        win_y = self._root.winfo_y()
+        canvas_off_x = self._canvas.winfo_x()
+        canvas_off_y = self._canvas.winfo_y()
+        sx1 = win_x + canvas_off_x + max(0, x1 - pad)
+        sy1 = win_y + canvas_off_y + max(0, y1 - pad)
+        sx2 = win_x + canvas_off_x + x2 + pad
+        sy2 = win_y + canvas_off_y + y2 + pad
+        bw, bh = sx2 - sx1, sy2 - sy1
+        if bw > 0 and bh > 0:
+            self._bg_win.geometry(f"{bw}x{bh}+{sx1}+{sy1}")
+            self._bg_win.deiconify()
+            self._root.lift()   # 確保文字視窗在底板視窗上方
+        else:
+            self._bg_win.withdraw()
+
     def _do_close(self):
         """關閉視窗。"""
+        if self._bg_win:
+            self._bg_win.destroy()
         self._root.destroy()
 
     def _show_toolbar(self, event=None):
@@ -243,6 +281,7 @@ class SubtitleOverlay:
         nx = event.x_root - self._drag_x
         ny = event.y_root - self._drag_y
         self._root.geometry(f"+{nx}+{ny}")
+        self._place_bg_win(self._last_subtitle_bbox)
 
     _RESIZE_CURSORS = {
         "nw": "top_left_corner",  "ne": "top_right_corner",
@@ -350,6 +389,7 @@ class SubtitleOverlay:
         self._resize_start = None
         self._root.unbind("<B1-Motion>")
         self._root.unbind("<ButtonRelease-1>")
+        self._place_bg_win(self._last_subtitle_bbox)
 
     def _toggle_direction(self):
         if self._on_toggle_direction:
@@ -430,7 +470,12 @@ class SubtitleOverlay:
                                  fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
                                  anchor="se", tags="text")
 
-        if subtitle_bbox:
+        if self._bg_win is not None:
+            # Windows：用獨立半透明視窗做底板，文字視窗本身不透明
+            self._last_subtitle_bbox = subtitle_bbox
+            self._place_bg_win(subtitle_bbox)
+        elif subtitle_bbox:
+            # Linux fallback：canvas 矩形
             pad = 10
             bg = self._canvas.create_rectangle(
                 max(0, subtitle_bbox[0] - pad), max(0, subtitle_bbox[1] - pad),
