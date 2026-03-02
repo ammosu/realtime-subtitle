@@ -218,8 +218,8 @@ def main() -> None:
             if k in _current_config:
                 new_cfg[k] = _current_config[k]
         worker_ref[0] = _start_worker(new_cfg)
-        log.info("[Settings] Worker 重啟完成：asr=%s device=%s dir=%s",
-                 new_cfg["asr_server"], new_cfg["monitor_device"], new_cfg["direction"])
+        log.info("[Settings] Worker 重啟完成：asr=%s device=%s source=%s dir=%s",
+                 new_cfg["asr_server"], new_cfg["monitor_device"], new_cfg["source"], new_cfg["direction"])
 
         # 清空字幕畫面 + 同步 UI 標籤
         _last_raw[0] = ""
@@ -258,6 +258,7 @@ def main() -> None:
         log.exception("建立覆疊視窗失敗")
         return
     overlay.update_direction_label(args.direction)
+    overlay.update_source_label(args.source)
     log.info("覆疊視窗建立成功")
 
     # 覆疊視窗初始化後才 fork worker（child 不使用 X11/GTK）

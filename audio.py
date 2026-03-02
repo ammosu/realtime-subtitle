@@ -258,7 +258,19 @@ class MicrophoneAudioSource(AudioSource):
         if self._stream is not None:
             raise RuntimeError("MicrophoneAudioSource is already running; call stop() first.")
         import sounddevice as sd
-        dev_info = sd.query_devices(self._device, kind="input")
+        # 若裝置名稱有多個同名項目，優先選 WASAPI；否則直接 query
+        device = self._device
+        if isinstance(device, str):
+            all_devs = sd.query_devices()
+            matches = [i for i, d in enumerate(all_devs)
+                       if device in d["name"] and d["max_input_channels"] > 0]
+            if len(matches) > 1:
+                wasapi = [i for i in matches
+                          if "wasapi" in sd.query_hostapis(all_devs[i]["hostapi"])["name"].lower()]
+                device = wasapi[0] if wasapi else matches[0]
+            elif len(matches) == 1:
+                device = matches[0]
+        dev_info = sd.query_devices(device, kind="input")
         self._native_sr = int(dev_info["default_samplerate"])
         self._callback = callback
         self._buf = np.zeros(0, dtype=np.float32)
@@ -270,7 +282,7 @@ class MicrophoneAudioSource(AudioSource):
             channels=1,
             dtype="float32",
             blocksize=int(self._native_sr * 0.05),
-            device=self._device,
+            device=device,
             callback=self._sd_callback,
         )
         self._stream.start()

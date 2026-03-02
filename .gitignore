@@ -10,3 +10,4 @@ installer_output/
 subtitle.log
 .claude/
 .worktrees/
+.playwright-mcp/

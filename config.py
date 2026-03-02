@@ -85,25 +85,25 @@ def _list_audio_devices_for_dialog() -> list[str]:
 
 
 def _list_mic_devices_for_dialog() -> list[str]:
-    """回傳可用麥克風裝置名稱清單（排除 loopback）。"""
-    devices: list[str] = []
-    if sys.platform == "win32":
-        try:
-            import pyaudiowpatch as pyaudio
-            pa = pyaudio.PyAudio()
-            for i in range(pa.get_device_count()):
-                dev = pa.get_device_info_by_index(i)
-                if dev.get("maxInputChannels", 0) > 0 and not dev.get("isLoopbackDevice"):
-                    devices.append(dev["name"])
-            pa.terminate()
-        except Exception:
-            pass
-    if not devices:
-        try:
-            import sounddevice as sd
-            for d in sd.query_devices():
-                if d.get("max_input_channels", 0) > 0:
-                    devices.append(d["name"])
-        except Exception:
-            pass
-    return devices
+    """回傳可用麥克風裝置名稱清單（Windows 只列 WASAPI，避免同裝置重複出現）。"""
+    try:
+        import sounddevice as sd
+        hostapis = sd.query_hostapis()
+        if sys.platform == "win32":
+            # 只取 WASAPI hostapi index，避免 MME/DirectSound 同名重複
+            wasapi_idx = next(
+                (i for i, h in enumerate(hostapis) if "wasapi" in h["name"].lower()), None
+            )
+            target = {wasapi_idx} if wasapi_idx is not None else None
+        else:
+            target = None  # 非 Windows：不過濾
+        devices = []
+        for d in sd.query_devices():
+            if d["max_input_channels"] <= 0:
+                continue
+            if target is not None and d["hostapi"] not in target:
+                continue
+            devices.append(d["name"])
+        return devices
+    except Exception:
+        return []
