@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 開發工作流程
+
+修改完成後：
+1. **先重新啟動服務**，等待使用者人工確認運作正常
+2. **確認沒問題後才 commit**
+
+```bash
+# 關閉現有 python 程序
+powershell -Command "Get-Process python | Stop-Process -Force"
+
+# 重新啟動（設定對話框出現後，使用者自行按「啟動字幕辨識」）
+cd /c/Users/pang2/realtime-subtitle && .venv/Scripts/python subtitle_client.py &
+```
+
+> `taskkill` 在此環境無效，必須使用 PowerShell `Stop-Process`。
+
 ## Windows Packaging (.exe Installer)
 
 Requires PyInstaller (in venv) and Inno Setup 6 installed at `%LOCALAPPDATA%\Programs\Inno Setup 6`.
@@ -76,7 +92,8 @@ The application is split into focused modules under the repo root and a `ui/` su
 | `ui/overlay_gtk.py` | `SubtitleOverlayGTK` (GTK3 + Cairo, Linux) |
 | `ui/overlay_tk.py` | `SubtitleOverlay` (tkinter, Windows / fallback) |
 | `ui/dialog_gtk.py` | `SetupDialogGTK` (GTK3 startup config dialog) |
-| `ui/dialog_tk.py` | `SetupDialogTk` (tkinter startup config dialog) |
+| `ui/dialog_wx.py` | `SetupDialogWx`（wxPython 啟動設定對話框，Windows 主要使用）|
+| `ui/dialog_tk.py` | `SetupDialogTk`（plain-tkinter fallback，wxPython 不可用時）|
 
 ### Process model
 
@@ -122,7 +139,7 @@ Shown on startup when no CLI core args are provided. Both expose `.run() → dic
 
 - **`SetupDialogGTK`** — GTK3, Linux (preferred when `_GTK3_AVAILABLE=True`).
 - **`SetupDialogTk`** — Windows/fallback Linux. Uses CustomTkinter dark theme when available (`customtkinter` installed); falls back to plain tkinter. 從 overlay 開啟時（`run_as_toplevel`）以 `parent.winfo_x/y()` 定位，確保出現在 overlay 所在的螢幕上。
-- **`show_setup_dialog(config)`** — dispatcher that picks the right class based on platform.
+- **`show_setup_dialog(config)`** — dispatcher: GTK3 (Linux) → wxPython (Windows) → plain tkinter (fallback).
 
 ### Config persistence
 
@@ -161,7 +178,8 @@ HTTP POST to `<base_url>/api/transcribe` with raw float32 PCM bytes (`Content-Ty
 | `ui/overlay_gtk.py` | `SubtitleOverlayGTK`（GTK3 + Cairo，Linux）|
 | `ui/overlay_tk.py` | `SubtitleOverlay`（tkinter，Windows / fallback）|
 | `ui/dialog_gtk.py` | `SetupDialogGTK`（GTK3 啟動設定對話框）|
-| `ui/dialog_tk.py` | `SetupDialogTk`（tkinter 啟動設定對話框）|
+| `ui/dialog_wx.py` | `SetupDialogWx`（wxPython 啟動設定對話框，Windows 主要使用）|
+| `ui/dialog_tk.py` | `SetupDialogTk`（plain-tkinter fallback，wxPython 不可用時）|
 | `silero_vad_v6.onnx` | Silero VAD v6 model（runtime 必須存在）|
 | `.venv/lib/.../system-gi.pth` | 讓 venv 存取系統 PyGObject/GTK3 |
 | `~/.config/realtime-subtitle/config.json` | 使用者設定（自動建立）|
