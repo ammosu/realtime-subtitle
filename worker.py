@@ -11,7 +11,7 @@ from collections import deque
 
 import numpy as np
 
-from asr import ASRClient, TranslationDebouncer
+from asr import ASRStreamingSession, TranslationDebouncer
 from audio import MonitorAudioSource, MicrophoneAudioSource
 from constants import TARGET_SR
 from languages import parse_direction
@@ -66,7 +66,6 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     else:
         audio_source = MicrophoneAudioSource(device=cfg.get("mic_device"))
 
-    asr = ASRClient(cfg["asr_server"])
     _src_lang, _ = parse_direction(cfg.get("direction", ""))
     _asr_lang = _src_lang if _src_lang else None  # 傳給 ASR server 的語言提示
     _asr_context = cfg.get("context", "")          # 傳給 ASR server 的辨識提示詞
@@ -84,9 +83,10 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     vad_sess = ort.InferenceSession(str(_vad_model_path))
 
     _vad_q: queue.Queue = queue.Queue()
-    # _speech_q 傳送 (audio: np.ndarray, event: str)
-    # event = "probe" - 短靜音，檢查是否句末再決定要不要顯示
-    # event = "force" - 強制 flush（長靜音或 max buffer）
+    # _speech_q 傳送 streaming 事件 tuple：
+    #   ("start",  audio: np.ndarray) — 語音開始（含預滾音訊）
+    #   ("audio",  audio: np.ndarray) — 語音進行中的 36ms 片段
+    #   ("finish", None)              — 語音結束（靜音 0.5s 或 max buffer）
     _speech_q: queue.Queue = queue.Queue()
     _stop_event = threading.Event()
 
@@ -96,15 +96,19 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
 
     def vad_loop() -> None:
         """
-        VAD 執行緒：靜音偵測。
+        VAD 執行緒：以 streaming 事件通知 asr_loop。
 
-        語音結束（靜音 ≥ 0.8s）或 buffer 達 10s 上限時，把整段語音送到 _speech_q。
+        語音狀態機：
+        - IDLE → SPEAKING：偵測到語音，送 ("start", 預滾+首片段)
+        - SPEAKING：每個 36ms 片段送 ("audio", chunk)
+        - SPEAKING → IDLE：靜音 0.5s 或 max buffer 8s，送 ("finish", None)
         """
         h = np.zeros((1, 1, 128), dtype=np.float32)
         c = np.zeros((1, 1, 128), dtype=np.float32)
-        buf: list[np.ndarray] = []
         pre_buf: deque = deque(maxlen=VAD_PAD_CHUNKS)  # 語音開始前的預滾緩衝
+        in_speech = False
         sil_cnt = 0
+        speech_cnt = 0   # 本段已送出的 VAD chunk 數，用於 max buffer 偵測
         leftover = np.zeros(0, dtype=np.float32)
 
         try:
@@ -129,34 +133,41 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                     prob = float(prob.flatten()[0])
 
                     if prob >= VAD_THRESHOLD:
-                        if not buf:
-                            # 語音剛開始：把預滾緩衝補入，保留字音開頭
-                            buf.extend(pre_buf)
+                        if not in_speech:
+                            # 語音剛開始：把預滾緩衝 + 首片段一起送出
+                            init = np.concatenate(list(pre_buf) + [chunk]) if pre_buf else chunk
+                            _speech_q.put(("start", init))
+                            in_speech = True
+                            speech_cnt = len(pre_buf) + 1
                             pre_buf.clear()
-                        buf.append(chunk)
+                        else:
+                            _speech_q.put(("audio", chunk))
+                            speech_cnt += 1
                         sil_cnt = 0
-                    elif buf:
-                        buf.append(chunk)
+                    elif in_speech:
+                        _speech_q.put(("audio", chunk))
+                        speech_cnt += 1
                         sil_cnt += 1
                         if sil_cnt >= RT_SILENCE_CHUNKS:
-                            # 靜音 0.5s：送出整段語音，保留 h/c 以免下句開頭被漏偵測
-                            seg = np.concatenate(buf)
-                            print(f"[VAD] flush silence {len(seg)/TARGET_SR:.2f}s", flush=True)
-                            _speech_q.put(seg)
-                            buf = []
+                            dur = speech_cnt * VAD_CHUNK / TARGET_SR
+                            print(f"[VAD] streaming flush silence {dur:.2f}s", flush=True)
+                            _speech_q.put(("finish", None))
+                            in_speech = False
                             sil_cnt = 0
+                            speech_cnt = 0
                             pre_buf.clear()
                     else:
                         # 尚未偵測到語音：維持滾動預滾緩衝
                         pre_buf.append(chunk)
 
-                    # Max buffer 8s：強制送出，保留 h/c
-                    if len(buf) >= RT_MAX_BUFFER_CHUNKS:
-                        seg = np.concatenate(buf)
-                        print(f"[VAD] flush max {len(seg)/TARGET_SR:.2f}s", flush=True)
-                        _speech_q.put(seg)
-                        buf = []
+                    # Max buffer 8s：強制結束本段，保留 h/c
+                    if in_speech and speech_cnt >= RT_MAX_BUFFER_CHUNKS:
+                        dur = speech_cnt * VAD_CHUNK / TARGET_SR
+                        print(f"[VAD] streaming flush max {dur:.2f}s", flush=True)
+                        _speech_q.put(("finish", None))
+                        in_speech = False
                         sil_cnt = 0
+                        speech_cnt = 0
                         pre_buf.clear()
 
         except Exception as e:
@@ -174,54 +185,93 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         return text
 
     def asr_loop() -> None:
-        """ASR 執行緒：one-shot 轉錄，收到整段語音就直接送 server 辨識。"""
+        """ASR 執行緒：streaming 轉錄，處理 ("start"/"audio"/"finish", audio) 事件。"""
         nonlocal current_original
-        print("[ASR] thread started", flush=True)
+        print("[ASR streaming] thread started", flush=True)
 
-        # 連續段落合併（翻譯用）：同一句話被 VAD max-buffer 截斷時，把相鄰段落合併後翻譯
-        # 顯示（原文黃字）只顯示最新一段，避免原文過長把翻譯推出視窗外
-        CONCAT_WINDOW_SEC = 4.0   # 上一段結果 4 秒內若有新段落，自動合併送翻譯
-        CONCAT_MAX_CHARS  = 200   # 超過此長度停止合併，視為新句子
+        # 連續段落合併（翻譯用）：VAD 斷句不等於語意句尾，拉長窗口讓更多片段合併
+        CONCAT_WINDOW_SEC  = 8.0   # 8s 內的相鄰段落自動合併
+        CONCAT_MAX_CHARS   = 200   # 超過此長度強制翻譯（保底）
+        SENTENCE_ENDINGS   = set("。？！.?!")  # 偵測句尾的標點
         _last_asr_time = 0.0
-        _accumulated_for_translation = ""   # 合併版，只送翻譯用
+        _accumulated_for_translation = ""
 
-        while not _stop_event.is_set():
-            try:
-                audio = _speech_q.get(timeout=0.5)
-            except queue.Empty:
-                continue
+        session: ASRStreamingSession | None = None
 
-            if len(audio) < TARGET_SR // 8:   # < 0.125s，跳過
-                continue
-
-            try:
-                result = asr.transcribe(audio, language=_asr_lang, context=_asr_context)
-                language = result.get("language", "")
-                text = _to_traditional(result.get("text", ""), language)
-
-                # 計算合併版（翻譯用）
+        def _handle_result(result: dict, is_final: bool) -> None:
+            """
+            處理 ASR 結果：
+            - 中間結果：只更新原文顯示，不翻譯
+            - 最終結果：合併相鄰片段；有句尾標點或累積過長才送翻譯
+            """
+            nonlocal current_original, _last_asr_time, _accumulated_for_translation
+            language = result.get("language", "")
+            text = _to_traditional(result.get("text", ""), language)
+            if not text or text == current_original:
+                return
+            current_original = text
+            text_q.put({"raw": text})
+            if is_final:
                 now = time.time()
                 if (_accumulated_for_translation
-                        and text
                         and now - _last_asr_time < CONCAT_WINDOW_SEC
                         and len(_accumulated_for_translation) < CONCAT_MAX_CHARS):
                     _accumulated_for_translation += text
                 else:
                     _accumulated_for_translation = text
                 _last_asr_time = now
-
-                print(f"[ASR] lang={language!r} text={text!r} accumulated={_accumulated_for_translation!r}", flush=True)
-
-                if text and text != current_original:
-                    current_original = text
-                    # 顯示：只送最新一段原文（避免原文過長）
-                    text_q.put({"raw": text})
-                    # 翻譯：用合併版，涵蓋前後段落
+                # 只在句尾標點或累積過長時才送翻譯，避免翻到半句話
+                ends_with_sentence = bool(
+                    _accumulated_for_translation
+                    and _accumulated_for_translation[-1] in SENTENCE_ENDINGS
+                )
+                force_translate = len(_accumulated_for_translation) >= CONCAT_MAX_CHARS
+                if ends_with_sentence or force_translate:
+                    reason = "句尾" if ends_with_sentence else "保底"
+                    print(f"[ASR] final [{reason}] lang={language!r} acc={_accumulated_for_translation!r}", flush=True)
                     debouncer.update(_accumulated_for_translation)
+                    _accumulated_for_translation = ""  # 送出後清空，避免重複累積
+                else:
+                    print(f"[ASR] final [等待句尾] lang={language!r} text={text!r}", flush=True)
+            else:
+                print(f"[ASR] interim lang={language!r} text={text!r}", flush=True)
+
+        while not _stop_event.is_set():
+            try:
+                event, audio = _speech_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            try:
+                if event == "start":
+                    session = ASRStreamingSession(
+                        base_url=cfg["asr_server"],
+                        language=_asr_lang,
+                        context=_asr_context,
+                    )
+                    session.start()
+                    # 推入初始音訊（預滾 + 首片段）
+                    if len(audio) >= TARGET_SR // 8:
+                        result = session.push(audio)
+                        if result:
+                            _handle_result(result, is_final=False)
+
+                elif event == "audio":
+                    if session is None:
+                        continue
+                    result = session.push(audio)
+                    if result:
+                        _handle_result(result, is_final=False)
+
+                elif event == "finish":
+                    if session is None:
+                        continue
+                    result = session.finish()
+                    _handle_result(result, is_final=True)
+                    session = None
 
             except Exception as e:
-                print(f"[Worker ASR error] {e}", flush=True)
-                # timeout 後清空積壓的舊 chunk，避免 server 持續過載
+                print(f"[ASR streaming error] {e}", flush=True)
                 if "timed out" in str(e).lower():
                     drained = 0
                     while not _speech_q.empty():
@@ -231,7 +281,8 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                         except queue.Empty:
                             break
                     if drained:
-                        print(f"[ASR] Cleared {drained} stale chunks after timeout", flush=True)
+                        print(f"[ASR] Cleared {drained} stale events after timeout", flush=True)
+                session = None
 
     vad_thread = threading.Thread(target=vad_loop, daemon=True, name="vad-thread")
     asr_thread = threading.Thread(target=asr_loop, daemon=True, name="asr-thread")

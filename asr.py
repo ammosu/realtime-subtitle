@@ -44,6 +44,87 @@ class ASRClient:
 
 
 # ---------------------------------------------------------------------------
+# Streaming ASR Session
+# ---------------------------------------------------------------------------
+
+class ASRStreamingSession:
+    """
+    Streaming ASR session via /api/start → /api/chunk（多次）→ /api/finish。
+
+    使用方式：
+        session = ASRStreamingSession("http://localhost:8000", language="zh")
+        session.start()
+
+        # VAD 偵測到語音時，逐步推入 36ms 片段：
+        result = session.push(chunk)  # 累積滿 1s 才送出；回傳中間結果或 None
+        ...
+        # VAD 偵測到靜音時取最終結果：
+        final = session.finish()  # {"language": str, "text": str}
+    """
+    PUSH_SAMPLES = 16000  # 自動送出閾值：1s @ 16kHz
+
+    def __init__(self, base_url: str, language: str | None = None, context: str = ""):
+        self.base_url = base_url.rstrip("/")
+        self._params: dict = {}
+        if language:
+            self._params["language"] = language
+        if context:
+            self._params["context"] = context
+        self._session_id: str | None = None
+        self._pending = np.zeros(0, dtype=np.float32)
+
+    def start(self) -> None:
+        """在 ASR server 建立新 session。push/finish 前必須先呼叫。"""
+        r = requests.post(f"{self.base_url}/api/start", timeout=10)
+        r.raise_for_status()
+        self._session_id = r.json()["session_id"]
+        self._pending = np.zeros(0, dtype=np.float32)
+        log.debug("[Streaming] session started: %s", self._session_id)
+
+    def push(self, audio: np.ndarray) -> dict | None:
+        """
+        緩衝音訊；累積滿 PUSH_SAMPLES 時自動 POST /api/chunk。
+        回傳中間辨識結果 {"language", "text"}，或 None（仍在緩衝中）。
+        """
+        if self._session_id is None:
+            raise RuntimeError("Session not started; call start() first")
+        self._pending = np.concatenate([self._pending, audio])
+        if len(self._pending) >= self.PUSH_SAMPLES:
+            to_send = self._pending
+            self._pending = np.zeros(0, dtype=np.float32)
+            return self._post_chunk(to_send)
+        return None
+
+    def finish(self) -> dict:
+        """送出剩餘緩衝音訊，呼叫 /api/finish，回傳最終辨識結果。"""
+        if self._session_id is None:
+            raise RuntimeError("Session not started; call start() first")
+        if len(self._pending) > 0:
+            try:
+                self._post_chunk(self._pending)
+            except Exception as e:
+                log.warning("[Streaming] final chunk push failed: %s", e)
+            self._pending = np.zeros(0, dtype=np.float32)
+        params = {"session_id": self._session_id, **self._params}
+        r = requests.post(f"{self.base_url}/api/finish", params=params, timeout=30)
+        r.raise_for_status()
+        log.debug("[Streaming] session finished: %s", self._session_id)
+        return r.json()
+
+    def _post_chunk(self, audio: np.ndarray) -> dict:
+        params = {"session_id": self._session_id, **self._params}
+        r = requests.post(
+            f"{self.base_url}/api/chunk",
+            data=audio.tobytes(),
+            headers={"Content-Type": "application/octet-stream"},
+            params=params,
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+# ---------------------------------------------------------------------------
 # Translation Debouncer
 # ---------------------------------------------------------------------------
 
