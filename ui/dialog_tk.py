@@ -17,6 +17,22 @@ from languages import LANG_LABELS, lang_code_to_label, lang_label_to_code, parse
 log = logging.getLogger(__name__)
 
 
+def _get_dpi_scale(x: int = 0, y: int = 0) -> float:
+    """回傳座標 (x, y) 所在螢幕的 DPI 縮放係數（96 dpi = 1.0）。僅 Windows 有效。"""
+    if sys.platform != "win32":
+        return 1.0
+    try:
+        import ctypes
+        import ctypes.wintypes
+        pt = ctypes.wintypes.POINT(x, y)
+        hmon = ctypes.windll.user32.MonitorFromPoint(pt, 2)  # MONITOR_DEFAULTTONEAREST
+        dpi_x, dpi_y = ctypes.c_uint(96), ctypes.c_uint(96)
+        ctypes.windll.shcore.GetDpiForMonitor(hmon, 0, ctypes.byref(dpi_x), ctypes.byref(dpi_y))
+        return round(dpi_x.value / 96.0, 2)
+    except Exception:
+        return 1.0
+
+
 class SetupDialogTk:
     """tkinter 啟動設定對話框（Windows / GTK 不可用時）。
     使用 CustomTkinter（若可用）以現代深色主題呈現。
@@ -45,11 +61,18 @@ class SetupDialogTk:
         ctk.set_default_color_theme("blue")
 
         if parent is not None:
+            parent.update_idletasks()
+            px, py = parent.winfo_x(), parent.winfo_y()
+            _scale = _get_dpi_scale(px, py)
+            ctk.set_widget_scaling(_scale)
+            ctk.set_window_scaling(_scale)
             root = ctk.CTkToplevel(parent)
             root.attributes("-topmost", True)
-            parent.update_idletasks()
-            root.geometry(f"460x600+{parent.winfo_x()}+{parent.winfo_y()}")
+            root.geometry(f"460x600+{px}+{py}")
         else:
+            _scale = _get_dpi_scale(0, 0)
+            ctk.set_widget_scaling(_scale)
+            ctk.set_window_scaling(_scale)
             root = ctk.CTk()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
