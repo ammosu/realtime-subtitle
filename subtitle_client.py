@@ -273,8 +273,10 @@ def main() -> None:
         while not text_q.empty():
             msg = text_q.get()
             if "direction" in msg:
+                _current_config["direction"] = msg["direction"]
                 overlay.update_direction_label(msg["direction"])
             elif "source" in msg:
+                _current_config["source"] = msg["source"]
                 overlay.update_source_label(msg["source"])
             elif "raw" in msg:
                 _last_raw[0] = msg["raw"]
