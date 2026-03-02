@@ -95,7 +95,6 @@ class SubtitleOverlay:
         # 拖拉條：中間拖拉，左右角落縮放
         drag_bar.bind("<Motion>", self._on_bar_motion)
         drag_bar.bind("<ButtonPress-1>", self._on_bar_press)
-        drag_bar.bind("<B1-Motion>", self._do_drag)
 
         # ── Canvas (created after drag bar, fills remaining space) ──
         self._canvas = tk.Canvas(
@@ -158,7 +157,6 @@ class SubtitleOverlay:
         self._toolbar.bind("<Leave>", self._hide_toolbar)
         self._toolbar.bind("<Motion>", self._on_bar_motion)
         self._toolbar.bind("<ButtonPress-1>", self._on_bar_press)
-        self._toolbar.bind("<B1-Motion>", self._do_drag)
 
         self._raw_str = ""
         self._en_str = ""
@@ -231,6 +229,12 @@ class SubtitleOverlay:
     def _start_drag(self, event):
         self._drag_x = event.x_root - self._root.winfo_x()
         self._drag_y = event.y_root - self._root.winfo_y()
+        self._root.bind("<B1-Motion>", self._do_drag)
+        self._root.bind("<ButtonRelease-1>", self._stop_drag)
+
+    def _stop_drag(self, event):
+        self._root.unbind("<B1-Motion>")
+        self._root.unbind("<ButtonRelease-1>")
 
     def _do_drag(self, event):
         nx = event.x_root - self._drag_x
