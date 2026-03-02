@@ -246,6 +246,14 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
 
             try:
                 if event == "start":
+                    # 確保 server 上不存在殘留舊 session（timeout 後 client 雖放棄，
+                    # server 端可能仍保有該 session，造成資源競爭）
+                    if session is not None:
+                        try:
+                            session.finish()
+                        except Exception:
+                            pass
+                        session = None
                     session = ASRStreamingSession(
                         base_url=cfg["asr_server"],
                         language=_asr_lang,

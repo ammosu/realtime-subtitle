@@ -9,11 +9,13 @@ Requirements:
     pip install sounddevice numpy scipy requests openai
 """
 import argparse
+import atexit
 import logging
 import multiprocessing
 import os
 import signal
 import sys
+import time
 
 # ── Windows：將 NotoSansTC-SemiBold.ttf 載入 GDI，讓 tkinter/customtkinter 可用 ──
 if sys.platform == "win32":
@@ -63,7 +65,41 @@ def show_setup_dialog(config: dict) -> dict | None:
 # Main Entry Point
 # ---------------------------------------------------------------------------
 
+_PID_FILE = os.path.join(os.path.expanduser("~"), ".config", "realtime-subtitle", "subtitle_client.pid")
+
+
+def _take_over_instance() -> None:
+    """
+    若有舊實例在跑，送 SIGTERM 強制關閉後再接管。
+    自己的 PID 寫入 PID 檔，退出時自動清除。
+    """
+    os.makedirs(os.path.dirname(_PID_FILE), exist_ok=True)
+
+    # 嘗試關閉舊實例
+    if os.path.exists(_PID_FILE):
+        try:
+            old_pid = int(open(_PID_FILE).read().strip())
+            if old_pid != os.getpid():
+                print(f"[Instance] 關閉舊實例 (pid={old_pid})...", file=sys.stderr)
+                if sys.platform == "win32":
+                    os.system(f"taskkill /PID {old_pid} /F >nul 2>&1")
+                else:
+                    os.kill(old_pid, signal.SIGTERM)
+                time.sleep(1.5)   # 等舊實例關閉
+        except (ValueError, ProcessLookupError, PermissionError):
+            pass   # PID 檔過時或已不存在，直接接管
+
+    # 寫入自己的 PID
+    with open(_PID_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    # 退出時清除 PID 檔
+    atexit.register(lambda: os.path.exists(_PID_FILE) and os.unlink(_PID_FILE))
+
+
 def main() -> None:
+    _take_over_instance()
+
     log.info("=== Real-time Subtitle 啟動 (pid=%d) ===", os.getpid())
     log.info("Log 檔位置: %s", _LOG_PATH)
     parser = argparse.ArgumentParser(description="Real-time subtitle overlay")
