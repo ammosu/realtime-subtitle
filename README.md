@@ -108,7 +108,7 @@ python subtitle_client.py --asr-server http://<SERVER_IP>:8000 --direction zh→
 | 操作 | 功能 |
 |------|------|
 | 滑鼠移到視窗頂部 | 顯示工具列 |
-| 拖拉頂部拖拉條 | 移動視窗位置 |
+| 拖拉頂部拖拉條（非按鈕區） | 移動視窗位置 |
 | 拖拉右下角三角形或四邊/四角 | 調整視窗大小 |
 | 工具列「EN→ZH ⇄」按鈕 | 切換翻譯方向 |
 | 工具列「🎤 MIC / 🔊 MON」按鈕 | 切換音源（麥克風/系統音） |
@@ -127,6 +127,8 @@ python subtitle_client.py --asr-server http://<SERVER_IP>:8000 --direction zh→
 | 字幕視窗看不到 | 檢查是否被其他視窗遮住；視窗為透明背景，需有文字才可見 |
 | ASR 連線失敗 | 確認 SERVER_IP 正確，防火牆已開放 TCP 8000 |
 | `opencc` 找不到 | `pip install opencc-python-reimplemented` |
+| Windows 麥克風清單只有部分裝置 | 正常行為：僅列出 WASAPI 介面的裝置，避免同一硬體在 MME/DirectSound 重複出現 |
+| 從 overlay 開啟設定視窗出現在其他螢幕 | 已修正：設定視窗會自動出現在 overlay 所在的螢幕 |
 
 ---
 

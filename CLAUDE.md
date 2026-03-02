@@ -113,7 +113,7 @@ AudioSource  →  on_chunk()  →  _vad_q
 
 Both overlay classes expose the same public interface: `set_text()`, `update_direction_label()`, `update_source_label()`, `run()`.
 
-- **`SubtitleOverlay`** — tkinter, Windows/fallback Linux. Uses `-transparentcolor` on Windows; `-type splash` + `-alpha` on Linux (semi-transparent whole window).
+- **`SubtitleOverlay`** — tkinter, Windows/fallback Linux. Uses `-transparentcolor` on Windows; `-type splash` + `-alpha` on Linux (semi-transparent whole window). 拖曳採動態綁定（`_start_drag` 才綁 `<B1-Motion>`，放開後解綁），避免點擊按鈕時誤觸拖曳。
 - **`SubtitleOverlayGTK`** — GTK3 + Cairo, Linux only (used when `_GTK3_AVAILABLE=True`). `Gtk.WindowType.POPUP` with RGBA visual + `OPERATOR_CLEAR` → fully transparent background, only text and drag bar are visible. Toolbar drawn in Cairo, button hit-testing done manually via `_btn_rects`.
 
 ### Setup dialog classes
@@ -121,7 +121,7 @@ Both overlay classes expose the same public interface: `set_text()`, `update_dir
 Shown on startup when no CLI core args are provided. Both expose `.run() → dict | None`.
 
 - **`SetupDialogGTK`** — GTK3, Linux (preferred when `_GTK3_AVAILABLE=True`).
-- **`SetupDialogTk`** — Windows/fallback Linux. Uses CustomTkinter dark theme when available (`customtkinter` installed); falls back to plain tkinter.
+- **`SetupDialogTk`** — Windows/fallback Linux. Uses CustomTkinter dark theme when available (`customtkinter` installed); falls back to plain tkinter. 從 overlay 開啟時（`run_as_toplevel`）以 `parent.winfo_x/y()` 定位，確保出現在 overlay 所在的螢幕上。
 - **`show_setup_dialog(config)`** — dispatcher that picks the right class based on platform.
 
 ### Config persistence
@@ -154,9 +154,9 @@ HTTP POST to `<base_url>/api/transcribe` with raw float32 PCM bytes (`Content-Ty
 | `subtitle_client.py` | 主程式進入點（`main()` + `show_setup_dialog()`，Windows 字體載入，~290 行） |
 | `constants.py` | 共用常數：`TARGET_SR`, `CHUNK_SAMPLES`，logging 設定 |
 | `asr.py` | ASR HTTP client (`ASRClient`) 與翻譯 debouncer (`TranslationDebouncer`) |
-| `audio.py` | 音訊來源：`MonitorAudioSource`, `MicrophoneAudioSource` |
+| `audio.py` | 音訊來源：`MonitorAudioSource`, `MicrophoneAudioSource`；Windows 麥克風同名多設備時優先選 WASAPI |
 | `worker.py` | Worker subprocess：VAD + ASR + 翻譯 pipeline |
-| `config.py` | 設定檔讀寫與音訊裝置列舉 |
+| `config.py` | 設定檔讀寫與音訊裝置列舉；Windows 麥克風清單只列 WASAPI 裝置（避免同裝置重複出現） |
 | `ui/__init__.py` | GTK3 可用性偵測 (`_GTK3_AVAILABLE`) |
 | `ui/overlay_gtk.py` | `SubtitleOverlayGTK`（GTK3 + Cairo，Linux）|
 | `ui/overlay_tk.py` | `SubtitleOverlay`（tkinter，Windows / fallback）|
