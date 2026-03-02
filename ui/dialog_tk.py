@@ -67,6 +67,7 @@ class SetupDialogTk:
             ctk.set_widget_scaling(_scale)
             ctk.set_window_scaling(_scale)
             root = ctk.CTkToplevel(parent)
+            root.withdraw()
             root.attributes("-topmost", True)
             root.geometry(f"460x600+{px}+{py}")
         else:
@@ -74,6 +75,7 @@ class SetupDialogTk:
             ctk.set_widget_scaling(_scale)
             ctk.set_window_scaling(_scale)
             root = ctk.CTk()
+            root.withdraw()
         root.title("Real-time Subtitle")
         root.resizable(False, False)
         if parent is None:
@@ -384,6 +386,8 @@ class SetupDialogTk:
 
         root.bind("<Return>", lambda e: on_ok())
         root.protocol("WM_DELETE_WINDOW", on_cancel)
+        root.update_idletasks()
+        root.deiconify()
         if parent is not None:
             parent.wait_window(root)
         else:
