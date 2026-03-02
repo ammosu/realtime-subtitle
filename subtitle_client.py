@@ -33,6 +33,11 @@ from ui.overlay_gtk import SubtitleOverlayGTK
 from ui.overlay_tk import SubtitleOverlay
 from ui.dialog_gtk import SetupDialogGTK
 from ui.dialog_tk import SetupDialogTk
+try:
+    from ui.dialog_wx import SetupDialogWx as _SetupDialogWx
+    _WX_AVAILABLE = True
+except ImportError:
+    _WX_AVAILABLE = False
 from languages import swap_direction
 
 if _GTK3_AVAILABLE:
@@ -49,6 +54,8 @@ def show_setup_dialog(config: dict) -> dict | None:
     """選擇正確的對話框實作並顯示，回傳設定 dict 或 None（取消）。"""
     if _GTK3_AVAILABLE and sys.platform != "win32":
         return SetupDialogGTK(config).run()
+    if _WX_AVAILABLE:
+        return _SetupDialogWx(config).run()
     return SetupDialogTk(config).run()
 
 
@@ -192,6 +199,8 @@ def main() -> None:
     def on_open_settings() -> None:
         if use_gtk:
             new_settings = SetupDialogGTK(_current_config).run()
+        elif _WX_AVAILABLE:
+            new_settings = _SetupDialogWx(_current_config).run_as_toplevel(overlay._root)
         else:
             new_settings = SetupDialogTk(_current_config).run_as_toplevel(overlay._root)
         if new_settings is None:
