@@ -75,7 +75,7 @@ class ASRStreamingSession:
 
     def start(self) -> None:
         """在 ASR server 建立新 session。push/finish 前必須先呼叫。"""
-        r = requests.post(f"{self.base_url}/api/start", timeout=10)
+        r = requests.post(f"{self.base_url}/api/start", params=self._params or None, timeout=10)
         r.raise_for_status()
         self._session_id = r.json()["session_id"]
         self._pending = np.zeros(0, dtype=np.float32)
@@ -105,19 +105,17 @@ class ASRStreamingSession:
             except Exception as e:
                 log.warning("[Streaming] final chunk push failed: %s", e)
             self._pending = np.zeros(0, dtype=np.float32)
-        params = {"session_id": self._session_id, **self._params}
-        r = requests.post(f"{self.base_url}/api/finish", params=params, timeout=30)
+        r = requests.post(f"{self.base_url}/api/finish", params={"session_id": self._session_id}, timeout=30)
         r.raise_for_status()
         log.debug("[Streaming] session finished: %s", self._session_id)
         return r.json()
 
     def _post_chunk(self, audio: np.ndarray) -> dict:
-        params = {"session_id": self._session_id, **self._params}
         r = requests.post(
             f"{self.base_url}/api/chunk",
             data=audio.tobytes(),
             headers={"Content-Type": "application/octet-stream"},
-            params=params,
+            params={"session_id": self._session_id},
             timeout=15,
         )
         r.raise_for_status()
@@ -144,10 +142,11 @@ class TranslationDebouncer:
     SENTENCE_ENDINGS = {".", "?", "!", "。", "？", "！"}
     DEBOUNCE_SEC = 0.4
 
-    def __init__(self, api_key: str, callback, model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: str, callback, model: str = "gpt-4o-mini", context: str = ""):
         self.client = OpenAI(api_key=api_key)
         self.model = model
         self.callback = callback
+        self.context = context           # 專有名詞提示詞（同步自 ASR context）
         self.direction: str = "en→zh"   # 目前翻譯方向
 
         self._last_translated = ""
@@ -214,13 +213,15 @@ class TranslationDebouncer:
         src, tgt = parse_direction(direction)
         _FILLER_ZH = "痾、阿、喔、嗯、啊、那個、就是、對對對、然後、所以說"
         _FILLER_EN = "um, uh, like, you know, so, right, basically"
+        _context_hint = f"\n背景知識（請參考以修正專有名詞）：{self.context}" if self.context else ""
         if src == "en" and tgt == "zh":
             system_msg = (
                 "你是即時字幕翻譯員。輸入是語音辨識（ASR）的原始文字。\n"
                 "請完成兩件事並以 JSON 回傳：\n"
                 f"1. corrected：修正同音字/辨識錯誤、移除無意義語氣詞（{_FILLER_ZH} 等），輸出自然書面英文\n"
                 "2. translated：將校正後文字翻譯成繁體中文（台灣口語），依中文語法重新組句\n"
-                '回傳格式：{"corrected": "校正後英文", "translated": "繁體中文翻譯"}'
+                f'回傳格式：{{"corrected": "校正後英文", "translated": "繁體中文翻譯"}}'
+                f"{_context_hint}"
             )
         elif src == "zh" and tgt == "en":
             system_msg = (
@@ -228,7 +229,8 @@ class TranslationDebouncer:
                 "Please do two things and return JSON:\n"
                 f"1. corrected: fix homophones/mis-recognized words, remove filler words ({_FILLER_ZH}, {_FILLER_EN}), output clean Chinese\n"
                 "2. translated: translate the corrected text to natural, colloquial English\n"
-                'Return format: {"corrected": "corrected Chinese", "translated": "English translation"}'
+                f'Return format: {{"corrected": "corrected Chinese", "translated": "English translation"}}'
+                f"{_context_hint}"
             )
         else:
             _ZH_PROMPT = "繁體中文（台灣口語）"
@@ -240,6 +242,7 @@ class TranslationDebouncer:
                 f"1. corrected: fix recognition errors, remove filler words, output clean {src_name}\n"
                 f"2. translated: translate the corrected text to {tgt_name}, keep it natural\n"
                 f'{{"corrected": "corrected {src_name}", "translated": "{tgt_name} translation"}}'
+                f"{_context_hint}"
             )
         try:
             response = self.client.chat.completions.create(

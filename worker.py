@@ -58,6 +58,7 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         api_key=cfg["openai_api_key"],
         callback=on_translation,
         model=cfg["translation_model"],
+        context=cfg.get("context", ""),
     )
     debouncer.set_direction(cfg["direction"])
 
