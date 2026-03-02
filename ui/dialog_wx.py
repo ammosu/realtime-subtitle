@@ -144,8 +144,7 @@ class _AdvancedDialog(wx.Dialog):
             self._on_ok(None)
         elif event.GetKeyCode() == wx.WXK_ESCAPE:
             self.EndModal(wx.ID_CANCEL)
-        else:
-            event.Skip()
+        event.Skip()
 
     def _on_ok(self, _event):
         self.result = {
@@ -196,8 +195,7 @@ class _SetupWxDlg(wx.Dialog):
             self._on_ok(None)
         elif event.GetKeyCode() == wx.WXK_ESCAPE:
             self.EndModal(wx.ID_CANCEL)
-        else:
-            event.Skip()
+        event.Skip()
 
     def _build(self):
         outer = wx.BoxSizer(wx.VERTICAL)
@@ -308,7 +306,6 @@ class _SetupWxDlg(wx.Dialog):
 
         self._rb_monitor.Bind(wx.EVT_RADIOBUTTON, self._on_source_change)
         self._rb_mic.Bind(wx.EVT_RADIOBUTTON, self._on_source_change)
-        self._on_source_change(None)
 
         # Translation direction
         b.Add(_dark(wx.StaticText(body, label="翻譯方向"), fg=_SUBTEXT),
@@ -362,6 +359,7 @@ class _SetupWxDlg(wx.Dialog):
                   self.FromDIP(16))
 
         self.SetSizer(outer)
+        self._on_source_change(None)
 
     def _on_source_change(self, _event):
         is_monitor = self._rb_monitor.GetValue()
@@ -374,6 +372,7 @@ class _SetupWxDlg(wx.Dialog):
             mon.Hide()
             mic.Show()
         self._dev_panel.Layout()
+        self.Layout()
 
     def _on_swap(self, _event):
         si = self._src_choice.GetSelection()
