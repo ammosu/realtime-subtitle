@@ -361,7 +361,10 @@ class SetupDialogTk:
         if parent is not None:
             parent.wait_window(root)
         else:
-            root.mainloop()
+            try:
+                root.mainloop()
+            except tk.TclError:
+                pass  # customtkinter tries to restore titlebar color after destroy
         return self._result
 
     # ------------------------------------------------------------------
