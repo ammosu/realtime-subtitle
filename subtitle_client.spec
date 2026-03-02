@@ -1,10 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
-from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
-
-# customtkinter 需要帶入其 data files（主題 JSON 等）
-ctk_datas = collect_data_files("customtkinter")
-
 a = Analysis(
     ["subtitle_client.py"],
     pathex=[],
@@ -12,12 +7,12 @@ a = Analysis(
     datas=[
         ("silero_vad_v6.onnx", "."),
         ("NotoSansTC-SemiBold.ttf", "."),
-        *ctk_datas,
     ],
     hiddenimports=[
         "constants", "asr", "audio", "worker", "config", "languages",
         "ui", "ui.overlay_gtk", "ui.overlay_tk",
-        "ui.dialog_gtk", "ui.dialog_tk",
+        "ui.dialog_gtk", "ui.dialog_tk", "ui.dialog_wx",
+        "wx",
         "pyaudiowpatch",
         "scipy.signal",
         "scipy._lib.messagestream",
