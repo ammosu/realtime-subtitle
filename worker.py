@@ -309,10 +309,14 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 cmd = cmd_q.get()
                 if cmd == "toggle":
                     new_dir = debouncer.toggle_direction()
+                    _src_lang, _ = parse_direction(new_dir)
+                    _asr_lang = _src_lang if _src_lang else None
                     text_q.put({"direction": new_dir})
                 elif isinstance(cmd, str) and cmd.startswith("set_direction:"):
                     new_dir = cmd.split(":", 1)[1]
                     debouncer.set_direction(new_dir)
+                    _src_lang, _ = parse_direction(new_dir)
+                    _asr_lang = _src_lang if _src_lang else None
                     text_q.put({"direction": new_dir})
                 elif cmd == "switch_source":
                     audio_source.stop()
