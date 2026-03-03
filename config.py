@@ -13,12 +13,23 @@ log = logging.getLogger(__name__)
 _CONFIG_PATH = os.path.expanduser("~/.config/realtime-subtitle/config.json")
 
 _CONFIG_DEFAULTS = {
+    # ASR 後端選擇
+    "backend": "remote",           # "local" 或 "remote"
+    # 本地後端設定
+    "local_model_path": "",        # GGUF 模型路徑（.bin）
+    "local_chatllm_dir": "",       # chatllm 執行檔目錄
+    "local_device_id": 0,          # Vulkan 裝置 ID（0 = 第一張 GPU）
+    # 遠端後端設定
     "asr_server": "http://localhost:8000",
+    # 音訊來源
     "source": "monitor",
     "monitor_device": MonitorAudioSource.DEFAULT_DEVICE or "",
     "mic_device": "",
+    # 翻譯
     "direction": "en→zh",
     "openai_api_key": "",
+    "translation_model": "gpt-4o-mini",
+    # 顯示
     "en_font_size": 15,
     "zh_font_size": 24,
 }
@@ -37,7 +48,14 @@ def load_config() -> dict:
 def save_config(settings: dict) -> None:
     """儲存設定至 ~/.config/realtime-subtitle/config.json。"""
     os.makedirs(os.path.dirname(_CONFIG_PATH), exist_ok=True)
-    keys = ["asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key", "en_font_size", "zh_font_size"]
+    keys = [
+        "backend",
+        "local_model_path", "local_chatllm_dir", "local_device_id",
+        "asr_server",
+        "source", "monitor_device", "mic_device",
+        "direction", "openai_api_key", "translation_model",
+        "en_font_size", "zh_font_size",
+    ]
     with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump({k: settings.get(k, _CONFIG_DEFAULTS.get(k, "")) for k in keys}, f, ensure_ascii=False, indent=2)
 

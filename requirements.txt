@@ -4,6 +4,10 @@ scipy>=1.11.0
 requests>=2.31.0
 openai>=1.30.0
 onnxruntime>=1.16.0
-pyaudiowpatch>=0.2.12
+pyaudiowpatch>=0.2.12        # Windows only - WASAPI loopback
 opencc-python-reimplemented>=0.1.7
-wxPython>=4.2.0
+wxPython>=4.2.0               # optional - dialog fallback
+
+# ── 本地 ASR 後端（chatllm.cpp + Vulkan）────────────────────────────────
+# chatllm.cpp 本身是 compiled binary（libchatllm.so），不透過 pip 安裝
+# 只需確保 scipy（已列上方）用於寫暫存 WAV

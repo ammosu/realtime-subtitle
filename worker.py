@@ -50,14 +50,21 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     _s2tw = opencc.OpenCC("s2twp")
 
     current_original = ""
+    _last_asr_time = 0.0
+    _accumulated_for_translation = ""
+
+    # 連續段落合併設定（翻譯用）
+    _CONCAT_WINDOW_SEC = 8.0
+    _CONCAT_MAX_CHARS  = 200
+    _SENTENCE_ENDINGS  = set("。？！.?!")
 
     def on_translation(corrected: str, translated: str) -> None:
         text_q.put({"original": _to_traditional(corrected, ""), "translated": translated})
 
     debouncer = TranslationDebouncer(
-        api_key=cfg["openai_api_key"],
+        api_key=cfg.get("openai_api_key", ""),
         callback=on_translation,
-        model=cfg["translation_model"],
+        model=cfg.get("translation_model", "gpt-4o-mini"),
     )
     debouncer.set_direction(cfg["direction"])
 
@@ -67,8 +74,26 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         audio_source = MicrophoneAudioSource(device=cfg.get("mic_device"))
 
     _src_lang, _ = parse_direction(cfg.get("direction", ""))
-    _asr_lang = _src_lang if _src_lang else None  # 傳給 ASR server 的語言提示
-    _asr_context = cfg.get("context", "")          # 傳給 ASR server 的辨識提示詞
+    _asr_lang    = _src_lang if _src_lang else None  # 傳給 ASR 的語言提示
+    _asr_context = cfg.get("context", "")            # 辨識提示詞
+
+    # ── 本地後端初始化（blocking，在 worker process 裡載入模型）──────────
+    _backend = cfg.get("backend", "remote")
+    _local_engine  = None
+    _asr_corrector = None
+    if _backend == "local":
+        from local_asr_engine import LocalASREngine
+        print("[Worker] 載入本地 ASR 模型，請稍候…", flush=True)
+        _local_engine = LocalASREngine()
+        _local_engine.load(
+            model_path  = cfg.get("local_model_path", ""),
+            chatllm_dir = cfg.get("local_chatllm_dir", ""),
+            device_id   = int(cfg.get("local_device_id", 0)),
+        )
+        if cfg.get("openai_api_key"):
+            from correction import LLMCorrector
+            _asr_corrector = LLMCorrector(cfg["openai_api_key"])
+        print("[Worker] 本地 ASR 模型載入完成", flush=True)
 
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
@@ -184,59 +209,126 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
             return _s2tw.convert(text)
         return text
 
-    def asr_loop() -> None:
-        """ASR 執行緒：streaming 轉錄，處理 ("start"/"audio"/"finish", audio) 事件。"""
-        nonlocal current_original
-        print("[ASR streaming] thread started", flush=True)
-
-        # 連續段落合併（翻譯用）：VAD 斷句不等於語意句尾，拉長窗口讓更多片段合併
-        CONCAT_WINDOW_SEC  = 8.0   # 8s 內的相鄰段落自動合併
-        CONCAT_MAX_CHARS   = 200   # 超過此長度強制翻譯（保底）
-        SENTENCE_ENDINGS   = set("。？！.?!")  # 偵測句尾的標點
-        _last_asr_time = 0.0
-        _accumulated_for_translation = ""
-
-        session: ASRStreamingSession | None = None
-
-        def _handle_result(result: dict, is_final: bool) -> None:
-            """
-            處理 ASR 結果：
-            - 中間結果：只更新原文顯示，不翻譯（重複文字跳過）
-            - 最終結果：合併相鄰片段後送翻譯；句尾標點或超長時清空累積
-            """
-            nonlocal current_original, _last_asr_time, _accumulated_for_translation
-            language = result.get("language", "")
-            text = _to_traditional(result.get("text", ""), language)
-            if not text:
-                return
-            # 中間結果：重複則跳過；最終結果：即使與上次 interim 相同也要處理（避免漏翻）
-            if not is_final and text == current_original:
-                return
-            current_original = text
-            text_q.put({"raw": text})
-            if is_final:
-                now = time.time()
-                if (_accumulated_for_translation
-                        and now - _last_asr_time < CONCAT_WINDOW_SEC
-                        and len(_accumulated_for_translation) < CONCAT_MAX_CHARS):
-                    _accumulated_for_translation += text
-                else:
-                    _accumulated_for_translation = text
-                _last_asr_time = now
-                ends_with_sentence = bool(
-                    _accumulated_for_translation
-                    and _accumulated_for_translation[-1] in SENTENCE_ENDINGS
-                )
-                force_translate = len(_accumulated_for_translation) >= CONCAT_MAX_CHARS
-                # 每次 final 都送翻譯（debouncer 會 debounce 頻繁呼叫）
-                # 句尾或超長才清空累積，讓下一段從頭開始
-                reason = "句尾" if ends_with_sentence else ("保底" if force_translate else "即時")
-                print(f"[ASR] final [{reason}] lang={language!r} acc={_accumulated_for_translation!r}", flush=True)
-                debouncer.update(_accumulated_for_translation)
-                if ends_with_sentence or force_translate:
-                    _accumulated_for_translation = ""
+    def _handle_result(result: dict, is_final: bool) -> None:
+        """
+        處理 ASR 結果：
+        - 中間結果：只更新原文顯示，不翻譯（重複文字跳過）
+        - 最終結果：合併相鄰片段後送翻譯；句尾標點或超長時清空累積
+        本地模式和遠端模式共用此函式。
+        """
+        nonlocal current_original, _last_asr_time, _accumulated_for_translation
+        language = result.get("language", "")
+        text = _to_traditional(result.get("text", ""), language)
+        if not text:
+            return
+        if not is_final and text == current_original:
+            return
+        current_original = text
+        text_q.put({"raw": text})
+        if is_final:
+            now = time.time()
+            if (_accumulated_for_translation
+                    and now - _last_asr_time < _CONCAT_WINDOW_SEC
+                    and len(_accumulated_for_translation) < _CONCAT_MAX_CHARS):
+                _accumulated_for_translation += text
             else:
-                print(f"[ASR] interim lang={language!r} text={text!r}", flush=True)
+                _accumulated_for_translation = text
+            _last_asr_time = now
+            ends_with_sentence = bool(
+                _accumulated_for_translation
+                and _accumulated_for_translation[-1] in _SENTENCE_ENDINGS
+            )
+            force_translate = len(_accumulated_for_translation) >= _CONCAT_MAX_CHARS
+            reason = "句尾" if ends_with_sentence else ("保底" if force_translate else "即時")
+            print(f"[ASR] final [{reason}] lang={language!r} acc={_accumulated_for_translation!r}", flush=True)
+            debouncer.update(_accumulated_for_translation)
+            if ends_with_sentence or force_translate:
+                _accumulated_for_translation = ""
+        else:
+            print(f"[ASR] interim lang={language!r} text={text!r}", flush=True)
+
+    def asr_loop_local() -> None:
+        """
+        本地後端 ASR 執行緒：緩衝完整音頻後做 one-shot 轉錄。
+        - 收到 "start"/"audio" → 累積至 buf
+        - 收到 "finish" → local_engine.transcribe(whole_buf)
+        - 相鄰段落間保留 0.5s overlap 音頻，給下一段 ASR 提供上文脈絡
+        - 使用 LLMCorrector 去除 overlap 造成的重複與幻覺
+        """
+        OVERLAP_SAMPLES = int(0.5 * TARGET_SR)   # ~8000 samples
+        buf: list[np.ndarray] = []
+        prev_audio_tail = np.zeros(0, dtype=np.float32)  # 上段末尾 0.5s
+        prev_raw = ""                                      # 上段完整原始 ASR
+
+        print("[ASR local] thread started", flush=True)
+
+        while not _stop_event.is_set():
+            try:
+                event, audio = _speech_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+
+            try:
+                if event == "start":
+                    # 新段落開頭：prepend 上段 overlap 音頻（提供 ASR 上文脈絡）
+                    buf = ([prev_audio_tail] if len(prev_audio_tail) > 0 else []) + [audio]
+
+                elif event == "audio":
+                    if not buf:
+                        buf = [audio]
+                    else:
+                        buf.append(audio)
+
+                elif event == "finish":
+                    if not buf:
+                        continue
+
+                    audio_data = np.concatenate(buf)
+                    buf = []
+
+                    # 保留末尾 0.5s 供下一段 overlap
+                    if len(audio_data) > OVERLAP_SAMPLES:
+                        prev_audio_tail = audio_data[-OVERLAP_SAMPLES:].copy()
+                    else:
+                        prev_audio_tail = audio_data.copy()
+
+                    # 轉錄
+                    raw = _local_engine.transcribe(
+                        audio_data, language=_asr_lang, context=_asr_context
+                    )
+                    if not raw:
+                        continue
+
+                    # LLM 校正（去 overlap 重複 + 修正幻覺 + 斷句）
+                    if _asr_corrector:
+                        saved_prev_raw = prev_raw
+                        prev_raw = raw
+                        display_text = _asr_corrector.correct(raw, prev_raw=saved_prev_raw)
+                    else:
+                        display_text = raw
+                        prev_raw = raw
+
+                    if display_text:
+                        _handle_result(
+                            {"text": display_text, "language": _asr_lang or ""},
+                            is_final=True,
+                        )
+
+            except Exception as e:
+                print(f"[ASR local error] {e}", flush=True)
+                buf = []
+
+    def asr_loop() -> None:
+        """ASR 執行緒分派器：依 backend 設定選擇本地或遠端模式。"""
+        if _backend == "local" and _local_engine is not None:
+            asr_loop_local()
+            return
+        _asr_loop_remote()
+
+    def _asr_loop_remote() -> None:
+        """遠端 HTTP streaming 模式。"""
+        print("[ASR streaming] thread started", flush=True)
+        session: ASRStreamingSession | None = None
 
         while not _stop_event.is_set():
             try:

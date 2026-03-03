@@ -42,13 +42,60 @@ class SetupDialogTk:
             self._config.get("openai_api_key", "")
             or os.environ.get("OPENAI_API_KEY", "")
         )
-        tk.Label(root, text="OpenAI API Key", anchor="w").pack(fill="x", **pad)
+        tk.Label(root, text="OpenAI API Key（翻譯用）", anchor="w").pack(fill="x", **pad)
         key_var = tk.StringVar(value=_existing_key)
         tk.Entry(root, textvariable=key_var, show="*", width=48).pack(**pad)
 
-        tk.Label(root, text="ASR Server URL", anchor="w").pack(fill="x", **pad)
+        # ASR 後端選擇
+        tk.Label(root, text="ASR 後端", anchor="w").pack(fill="x", **pad)
+        _saved_backend = self._config.get("backend", "remote")
+        backend_var = tk.StringVar(value=_saved_backend)
+        backend_frame = tk.Frame(root)
+        backend_frame.pack(fill="x", **pad)
+        tk.Radiobutton(backend_frame, text="🖥 本地模型", variable=backend_var,
+                       value="local").pack(side="left")
+        tk.Radiobutton(backend_frame, text="🌐 遠端伺服器", variable=backend_var,
+                       value="remote").pack(side="left")
+
+        # 本地後端設定區
+        local_frame = tk.Frame(root)
+        tk.Label(local_frame, text="模型路徑 (.bin)", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
+        local_model_var = tk.StringVar(value=self._config.get("local_model_path", ""))
+        tk.Entry(local_frame, textvariable=local_model_var, width=48).pack(padx=12, pady=(0, 4))
+        tk.Label(local_frame, text="chatllm 目錄", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
+        local_dir_var = tk.StringVar(value=self._config.get("local_chatllm_dir", ""))
+        tk.Entry(local_frame, textvariable=local_dir_var, width=48).pack(padx=12, pady=(0, 4))
+        tk.Label(local_frame, text="GPU 裝置", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
+        _dev_choices = ["CPU（僅使用 CPU）"]
+        _chatllm_dir = self._config.get("local_chatllm_dir", "")
+        if _chatllm_dir:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                from local_asr_engine import detect_vulkan_devices
+                for dev in detect_vulkan_devices(_chatllm_dir):
+                    _dev_choices.append(f"GPU:{dev['id']} {dev['name']}")
+            except Exception:
+                pass
+        local_dev_var = tk.StringVar(value=_dev_choices[0])
+        tk.OptionMenu(local_frame, local_dev_var, *_dev_choices).pack(padx=12, pady=(0, 4), anchor="w")
+
+        # 遠端後端設定區
+        remote_frame = tk.Frame(root)
+        tk.Label(remote_frame, text="ASR Server URL", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
         url_var = tk.StringVar(value=self._config.get("asr_server", "http://localhost:8000"))
-        tk.Entry(root, textvariable=url_var, width=48).pack(**pad)
+        tk.Entry(remote_frame, textvariable=url_var, width=48).pack(padx=12, pady=(0, 4))
+
+        def _on_backend_change(*_):
+            if backend_var.get() == "local":
+                remote_frame.pack_forget()
+                local_frame.pack(fill="x")
+            else:
+                local_frame.pack_forget()
+                remote_frame.pack(fill="x")
+
+        backend_var.trace_add("write", _on_backend_change)
+        _on_backend_change()  # 初始化
 
         _saved_source = self._config.get("source", "monitor")
         source_var = tk.StringVar(value=_saved_source)
@@ -168,25 +215,45 @@ class SetupDialogTk:
         btn_frame.pack(pady=12)
 
         def on_ok():
-            api_key = key_var.get().strip()
-            if not api_key:
-                _warn_label.configure(text="⚠ 請填入 OpenAI API Key")
+            api_key   = key_var.get().strip()
+            _is_local = backend_var.get() == "local"
+            if not _is_local and not api_key:
+                _warn_label.configure(text="⚠ 遠端模式需填入 OpenAI API Key")
                 return
+            if _is_local:
+                if not local_model_var.get().strip():
+                    _warn_label.configure(text="⚠ 請填入本地模型路徑")
+                    return
+                if not local_dir_var.get().strip():
+                    _warn_label.configure(text="⚠ 請填入 chatllm 目錄")
+                    return
             _is_monitor = source_var.get() == "monitor"
+            # GPU device ID：第 0 項為 CPU，第 1+ 項為 GPU:N
+            _dev_val = local_dev_var.get()
+            _local_dev_id = 0
+            if _dev_val.startswith("GPU:"):
+                try:
+                    _local_dev_id = int(_dev_val.split(":")[1].split()[0])
+                except (IndexError, ValueError):
+                    _local_dev_id = 0
             self._result = {
-                "asr_server":     url_var.get().strip() or "http://localhost:8000",
-                "source":         "monitor" if _is_monitor else "mic",
-                "monitor_device": monitor_device_var.get().strip(),
-                "mic_device":     mic_device_var.get().strip(),
-                "direction":      f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
-                "openai_api_key": api_key,
-                "context":        context_var.get().strip(),
-                "en_font_size":   en_size_var.get(),
-                "zh_font_size":   zh_size_var.get(),
-                "show_raw":       show_raw_var.get(),
-                "show_corrected": show_corrected_var.get(),
-                "_dialog_x":      root.winfo_x(),
-                "_dialog_y":      root.winfo_y(),
+                "backend":          "local" if _is_local else "remote",
+                "local_model_path": local_model_var.get().strip(),
+                "local_chatllm_dir": local_dir_var.get().strip(),
+                "local_device_id":  _local_dev_id,
+                "asr_server":       url_var.get().strip() or "http://localhost:8000",
+                "source":           "monitor" if _is_monitor else "mic",
+                "monitor_device":   monitor_device_var.get().strip(),
+                "mic_device":       mic_device_var.get().strip(),
+                "direction":        f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
+                "openai_api_key":   api_key,
+                "context":          context_var.get().strip(),
+                "en_font_size":     en_size_var.get(),
+                "zh_font_size":     zh_size_var.get(),
+                "show_raw":         show_raw_var.get(),
+                "show_corrected":   show_corrected_var.get(),
+                "_dialog_x":        root.winfo_x(),
+                "_dialog_y":        root.winfo_y(),
             }
             root.destroy()
 

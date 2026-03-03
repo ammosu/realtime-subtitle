@@ -92,8 +92,8 @@ class SetupDialogGTK:
                 lbl.get_style_context().add_class("first")
             body.add(lbl)
 
-        # OpenAI API Key
-        _add_label("OpenAI API Key", first=True)
+        # OpenAI API Key（翻譯用，local 模式下為選填）
+        _add_label("OpenAI API Key（翻譯用）", first=True)
         key_entry = Gtk.Entry()
         key_entry.set_visibility(False)
         key_entry.set_placeholder_text("sk-...")
@@ -105,13 +105,85 @@ class SetupDialogGTK:
         key_entry.set_activates_default(True)
         body.add(key_entry)
 
-        # ASR Server URL
-        _add_label("ASR Server URL")
+        # ASR 後端選擇
+        _add_label("ASR 後端")
+        _saved_backend = self._config.get("backend", "remote")
+        backend_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        rb_local  = Gtk.RadioButton.new_with_label(None, "🖥 本地模型")
+        rb_remote = Gtk.RadioButton.new_with_label_from_widget(rb_local, "🌐 遠端伺服器")
+        if _saved_backend == "local":
+            rb_local.set_active(True)
+        else:
+            rb_remote.set_active(True)
+        backend_box.pack_start(rb_local,  False, False, 0)
+        backend_box.pack_start(rb_remote, False, False, 0)
+        body.add(backend_box)
+
+        # ── 本地後端設定區 ──────────────────────────────────────────────
+        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        local_model_lbl = Gtk.Label(label="模型路徑 (.bin)", xalign=0)
+        local_model_lbl.get_style_context().add_class("field-label")
+        local_box.add(local_model_lbl)
+        local_model_entry = Gtk.Entry()
+        local_model_entry.set_text(self._config.get("local_model_path", ""))
+        local_model_entry.set_placeholder_text("/path/to/qwen3-asr-1.7b.bin")
+        local_box.add(local_model_entry)
+
+        local_dir_lbl = Gtk.Label(label="chatllm 目錄", xalign=0)
+        local_dir_lbl.get_style_context().add_class("field-label")
+        local_box.add(local_dir_lbl)
+        local_dir_entry = Gtk.Entry()
+        local_dir_entry.set_text(self._config.get("local_chatllm_dir", ""))
+        local_dir_entry.set_placeholder_text("/path/to/chatllm/")
+        local_box.add(local_dir_entry)
+
+        local_dev_lbl = Gtk.Label(label="GPU 裝置（留空 = CPU / 自動）", xalign=0)
+        local_dev_lbl.get_style_context().add_class("field-label")
+        local_box.add(local_dev_lbl)
+        local_dev_combo = Gtk.ComboBoxText.new_with_entry()
+        local_dev_combo.append_text("CPU（僅使用 CPU）")
+        _saved_dev_id = int(self._config.get("local_device_id", 0))
+        # 嘗試偵測 Vulkan 裝置
+        _chatllm_dir = self._config.get("local_chatllm_dir", "")
+        if _chatllm_dir:
+            try:
+                import sys as _sys
+                _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                from local_asr_engine import detect_vulkan_devices
+                for dev in detect_vulkan_devices(_chatllm_dir):
+                    local_dev_combo.append_text(f"GPU:{dev['id']} {dev['name']}")
+            except Exception:
+                pass
+        local_dev_combo.set_active(min(_saved_dev_id + 1, 0))  # +1 因為第 0 項是 CPU
+        local_box.add(local_dev_combo)
+
+        body.add(local_box)
+
+        # ── 遠端後端設定區 ──────────────────────────────────────────────
+        remote_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        remote_url_lbl = Gtk.Label(label="ASR Server URL", xalign=0)
+        remote_url_lbl.get_style_context().add_class("field-label")
+        remote_box.add(remote_url_lbl)
         url_entry = Gtk.Entry()
         url_entry.set_text(self._config.get("asr_server", "http://localhost:8000"))
         url_entry.set_placeholder_text("http://localhost:8000")
         url_entry.set_activates_default(True)
-        body.add(url_entry)
+        remote_box.add(url_entry)
+
+        body.add(remote_box)
+
+        def _on_backend_toggle(_btn):
+            if rb_local.get_active():
+                remote_box.hide()
+                local_box.show_all()
+            else:
+                local_box.hide()
+                remote_box.show_all()
+
+        rb_local.connect("toggled", _on_backend_toggle)
+        _on_backend_toggle(None)  # 初始化顯示
 
         # 音訊來源：系統音訊 / 麥克風 切換
         _add_label("音訊來源")
@@ -330,13 +402,29 @@ class SetupDialogGTK:
             response = win.run()
             if response != Gtk.ResponseType.OK:
                 break
-            if not key_entry.get_text().strip():
-                warn_label.set_markup('<span color="red">⚠ 請填入 OpenAI API Key</span>')
+            _is_local = rb_local.get_active()
+            # 遠端模式必填 API Key；本地模式 API Key 選填（翻譯用）
+            if not _is_local and not key_entry.get_text().strip():
+                warn_label.set_markup('<span color="red">⚠ 遠端模式需填入 OpenAI API Key</span>')
                 continue
+            if _is_local:
+                if not local_model_entry.get_text().strip():
+                    warn_label.set_markup('<span color="red">⚠ 請填入本地模型路徑</span>')
+                    continue
+                if not local_dir_entry.get_text().strip():
+                    warn_label.set_markup('<span color="red">⚠ 請填入 chatllm 目錄</span>')
+                    continue
             _is_monitor = rb_monitor.get_active()
             _src_lbl = src_combo.get_active_text() or "en (English)"
             _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
+            # GPU 裝置 ID：下拉第 0 項為 CPU，第 1+ 項為 GPU:N
+            _dev_idx = local_dev_combo.get_active()
+            _local_dev_id = max(0, _dev_idx - 1) if _dev_idx > 0 else 0
             self._result = {
+                "backend": "local" if _is_local else "remote",
+                "local_model_path": local_model_entry.get_text().strip(),
+                "local_chatllm_dir": local_dir_entry.get_text().strip(),
+                "local_device_id": _local_dev_id,
                 "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
                 "source": "monitor" if _is_monitor else "mic",
                 "monitor_device": monitor_combo.get_child().get_text().strip(),
