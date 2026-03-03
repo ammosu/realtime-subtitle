@@ -422,6 +422,12 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     finally:
         _stop_event.set()
         audio_source.stop()
+        # 本地模式：停止前輸出 LLM 暫存的不完整句尾片段
+        if _asr_corrector is not None:
+            pending = _asr_corrector.flush_pending()
+            if pending:
+                text_q.put({"raw": pending})
+                debouncer.update(pending)
         debouncer.shutdown()
         vad_thread.join(timeout=3)
         asr_thread.join(timeout=5)
