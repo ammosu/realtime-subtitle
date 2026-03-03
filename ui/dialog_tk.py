@@ -58,13 +58,79 @@ class SetupDialogTk:
                        value="remote").pack(side="left")
 
         # 本地後端設定區
+        # 自動偵測現有路徑作為預設值
+        try:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from local_downloader import detect_existing_paths as _dep, DEFAULT_MODEL_PATH as _DMP
+            _det_model, _det_dir = _dep()
+        except Exception:
+            _det_model, _det_dir, _DMP = "", "", None
+
         local_frame = tk.Frame(root)
         tk.Label(local_frame, text="模型路徑 (.bin)", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
-        local_model_var = tk.StringVar(value=self._config.get("local_model_path", ""))
+        local_model_var = tk.StringVar(value=self._config.get("local_model_path", "") or _det_model)
         tk.Entry(local_frame, textvariable=local_model_var, width=48).pack(padx=12, pady=(0, 4))
         tk.Label(local_frame, text="chatllm 目錄", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
-        local_dir_var = tk.StringVar(value=self._config.get("local_chatllm_dir", ""))
+        local_dir_var = tk.StringVar(value=self._config.get("local_chatllm_dir", "") or _det_dir)
         tk.Entry(local_frame, textvariable=local_dir_var, width=48).pack(padx=12, pady=(0, 4))
+
+        # 自動偵測 / 下載按鈕行
+        _dl_status_var = tk.StringVar(value="")
+        _lact_frame = tk.Frame(local_frame)
+        _lact_frame.pack(fill="x", padx=12, pady=(0, 4))
+
+        def _on_auto_detect_tk():
+            try:
+                from local_downloader import detect_existing_paths as _dep2
+                m, c = _dep2()
+            except Exception:
+                m, c = "", ""
+            if m:
+                local_model_var.set(m)
+            if c:
+                local_dir_var.set(c)
+            _dl_status_var.set(
+                "✅ 偵測完成" if (m and c) else "⚠ 未找到路徑，請手動填入或下載模型"
+            )
+
+        def _on_dl_tk():
+            import threading
+            _dl_btn_tk.configure(state="disabled")
+            _auto_btn_tk.configure(state="disabled")
+            try:
+                from local_downloader import download_gguf as _dg, DEFAULT_MODEL_PATH as _dmp
+            except Exception as ex:
+                _dl_status_var.set(f"❌ 載入失敗：{ex}")
+                _dl_btn_tk.configure(state="normal")
+                return
+
+            def _cb(pct, msg):
+                root.after(0, lambda: _dl_status_var.set(msg))
+
+            def _run():
+                try:
+                    _dg(progress_cb=_cb)
+                    root.after(0, lambda: (
+                        local_model_var.set(str(_dmp)),
+                        _dl_btn_tk.configure(state="normal"),
+                        _auto_btn_tk.configure(state="normal"),
+                    ))
+                except Exception as ex:
+                    root.after(0, lambda: (
+                        _dl_status_var.set(f"❌ 下載失敗：{ex}"),
+                        _dl_btn_tk.configure(state="normal"),
+                        _auto_btn_tk.configure(state="normal"),
+                    ))
+            threading.Thread(target=_run, daemon=True).start()
+
+        _auto_btn_tk = tk.Button(_lact_frame, text="⚡ 重新偵測", command=_on_auto_detect_tk)
+        _auto_btn_tk.pack(side="left", padx=(0, 4))
+        _dl_btn_tk = tk.Button(_lact_frame, text="⬇ 下載模型", command=_on_dl_tk)
+        _dl_btn_tk.pack(side="left")
+        tk.Label(local_frame, textvariable=_dl_status_var, anchor="w", fg="gray").pack(
+            fill="x", padx=12, pady=(0, 4)
+        )
         tk.Label(local_frame, text="GPU 裝置", anchor="w").pack(fill="x", padx=12, pady=(4, 0))
         _dev_choices = ["CPU（僅使用 CPU）"]
         _chatllm_dir = self._config.get("local_chatllm_dir", "")

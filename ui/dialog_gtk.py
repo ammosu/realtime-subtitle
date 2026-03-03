@@ -125,8 +125,17 @@ class SetupDialogGTK:
         local_model_lbl = Gtk.Label(label="模型路徑 (.bin)", xalign=0)
         local_model_lbl.get_style_context().add_class("field-label")
         local_box.add(local_model_lbl)
+        # 自動偵測現有路徑作為預設值
+        try:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from local_downloader import detect_existing_paths as _dep, DEFAULT_MODEL_PATH as _DMP
+            _det_model, _det_dir = _dep()
+        except Exception:
+            _det_model, _det_dir, _DMP = "", "", None
+
         local_model_entry = Gtk.Entry()
-        local_model_entry.set_text(self._config.get("local_model_path", ""))
+        local_model_entry.set_text(self._config.get("local_model_path", "") or _det_model)
         local_model_entry.set_placeholder_text("/path/to/qwen3-asr-1.7b.bin")
         local_box.add(local_model_entry)
 
@@ -134,9 +143,69 @@ class SetupDialogGTK:
         local_dir_lbl.get_style_context().add_class("field-label")
         local_box.add(local_dir_lbl)
         local_dir_entry = Gtk.Entry()
-        local_dir_entry.set_text(self._config.get("local_chatllm_dir", ""))
+        local_dir_entry.set_text(self._config.get("local_chatllm_dir", "") or _det_dir)
         local_dir_entry.set_placeholder_text("/path/to/chatllm/")
         local_box.add(local_dir_entry)
+
+        # 自動偵測 / 下載按鈕行
+        _lact_box = Gtk.Box(spacing=6, orientation=Gtk.Orientation.HORIZONTAL)
+        _auto_btn = Gtk.Button(label="⚡ 重新偵測")
+        _dl_btn   = Gtk.Button(label="⬇ 下載模型")
+        _lact_box.pack_start(_auto_btn, False, False, 0)
+        _lact_box.pack_start(_dl_btn,   False, False, 0)
+        local_box.add(_lact_box)
+        _dl_status = Gtk.Label(label="", xalign=0)
+        _dl_status.get_style_context().add_class("field-label")
+        local_box.add(_dl_status)
+
+        def _on_auto_detect(_b):
+            try:
+                from local_downloader import detect_existing_paths as _dep2
+                m, c = _dep2()
+            except Exception:
+                m, c = "", ""
+            if m:
+                local_model_entry.set_text(m)
+            if c:
+                local_dir_entry.set_text(c)
+            _dl_status.set_text(
+                "✅ 偵測完成" if (m and c) else "⚠ 未找到路徑，請手動填入或下載模型"
+            )
+        _auto_btn.connect("clicked", _on_auto_detect)
+
+        def _on_dl(_b):
+            import threading
+            from gi.repository import GLib
+            _dl_btn.set_sensitive(False)
+            _auto_btn.set_sensitive(False)
+            try:
+                from local_downloader import download_gguf as _dg, DEFAULT_MODEL_PATH as _dmp
+            except Exception as ex:
+                _dl_status.set_text(f"❌ 載入失敗：{ex}")
+                _dl_btn.set_sensitive(True)
+                return
+
+            def _cb(pct, msg):
+                GLib.idle_add(lambda: _dl_status.set_text(msg) or False)
+
+            def _run():
+                try:
+                    _dg(progress_cb=_cb)
+                    def _done():
+                        local_model_entry.set_text(str(_dmp))
+                        _dl_btn.set_sensitive(True)
+                        _auto_btn.set_sensitive(True)
+                        return False
+                    GLib.idle_add(_done)
+                except Exception as ex:
+                    def _err():
+                        _dl_status.set_text(f"❌ 下載失敗：{ex}")
+                        _dl_btn.set_sensitive(True)
+                        _auto_btn.set_sensitive(True)
+                        return False
+                    GLib.idle_add(_err)
+            threading.Thread(target=_run, daemon=True).start()
+        _dl_btn.connect("clicked", _on_dl)
 
         local_dev_lbl = Gtk.Label(label="GPU 裝置（留空 = CPU / 自動）", xalign=0)
         local_dev_lbl.get_style_context().add_class("field-label")
