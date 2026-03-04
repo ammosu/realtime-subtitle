@@ -426,62 +426,92 @@ class SubtitleOverlay:
             self.reset()
 
     def _redraw_text(self):
-        """Clear canvas and re-draw subtitle text with background pill and outline."""
+        """Clear canvas and re-draw up to 3 subtitle slots (2 history + current)."""
         self._canvas.delete("text")
 
         w = self._canvas.winfo_width() or self._root.winfo_width()
         h = self._canvas.winfo_height() or self._root.winfo_height()
         wrap_w = max(200, w - 60)
+        ex = 24
+        cur_y = 14
 
-        ex, cur_y = 24, 14
+        def _draw_slot(original: str, translated: str, is_raw: bool = False) -> None:
+            """Draw one subtitle slot (EN line + ZH line). Updates cur_y via nonlocal."""
+            nonlocal cur_y
+            en_color = "#909090" if is_raw else self.EN_COLOR
+            zh_color = "#909090" if is_raw else self.ZH_COLOR
 
-        def _draw_layer(text, fill, font):
-            """畫一層文字（主色 + 描邊），回傳下一層的起始 y。"""
-            item = self._canvas.create_text(ex, cur_y, text=text, fill=fill,
-                                            font=font, anchor="nw", width=wrap_w, tags="text")
-            bbox = self._canvas.bbox(item)
-            bottom = bbox[3] if bbox else cur_y + 20
-            for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-                self._canvas.create_text(ex+ox, cur_y+oy, text=text,
-                                         fill=self.OUTLINE_COLOR, font=font,
-                                         anchor="nw", width=wrap_w, tags="text")
-            self._canvas.tag_raise(item)
-            return bottom
+            # EN / original line
+            if original:
+                if not is_raw:
+                    for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        self._canvas.create_text(
+                            ex + ox, cur_y + oy, text=original,
+                            fill=self.OUTLINE_COLOR, font=self.EN_FONT,
+                            anchor="nw", width=wrap_w, tags="text")
+                item = self._canvas.create_text(
+                    ex, cur_y, text=original, fill=en_color,
+                    font=self.EN_FONT, anchor="nw", width=wrap_w, tags="text")
+                bbox = self._canvas.bbox(item)
+                cur_y = (bbox[3] if bbox else cur_y + 20) + 4
 
-        # RAW — 若 show_raw 開啟，在最上方繪製原始辨識文字（灰色）
-        if self._show_raw and self._raw_str:
-            cur_y = _draw_layer(self._raw_str, "#808080", self.EN_FONT) + 6
+            # ZH / translated line
+            if translated:
+                if not is_raw:
+                    for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                        self._canvas.create_text(
+                            ex + ox, cur_y + oy, text=translated,
+                            fill=self.OUTLINE_COLOR, font=self.ZH_FONT,
+                            anchor="nw", width=wrap_w, tags="text")
+                item = self._canvas.create_text(
+                    ex, cur_y, text=translated, fill=zh_color,
+                    font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
+                bbox = self._canvas.bbox(item)
+                cur_y = (bbox[3] if bbox else cur_y + 30) + 14
 
-        # EN（校正後）— 若 show_corrected 開啟才繪製
-        if self._show_corrected:
-            cur_y = _draw_layer(self._en_str, self.EN_COLOR, self.EN_FONT) + 8
+        # ── Determine which 3 slots to display ───────────────────────────
+        hist = list(self._history)
+        off  = self._scroll_offset
 
-        # ZH — 起始 y 跟著上方文字實際底部
-        zy = cur_y
-        for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            self._canvas.create_text(ex+ox, zy+oy, text=self._zh_str,
-                                     fill=self.OUTLINE_COLOR, font=self.ZH_FONT,
-                                     anchor="nw", width=wrap_w, tags="text")
-        self._canvas.create_text(ex, zy, text=self._zh_str, fill=self.ZH_COLOR,
-                                 font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
+        idx_a = len(hist) - 2 - off   # oldest visible history slot
+        idx_b = len(hist) - 1 - off   # newest visible history slot
 
-        # 字幕底板：在字幕文字背後疊淺灰底板（免責聲明前取 bbox，避免框住整個 canvas）
-        has_text = bool(self._en_str or self._zh_str or (self._show_raw and self._raw_str))
-        subtitle_bbox = self._canvas.bbox("text") if has_text else None
+        if idx_a >= 0:
+            e = hist[idx_a]
+            _draw_slot(e["original"], e["translated"])
 
-        # 免責聲明 — 右下角（無描邊，純色）
-        self._canvas.create_text(w - 10, h - 6, text=self.DISCLAIMER_TEXT,
-                                 fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
-                                 anchor="se", tags="text")
+        if idx_b >= 0:
+            e = hist[idx_b]
+            _draw_slot(e["original"], e["translated"])
 
-        if subtitle_bbox:
-            pad = 10
-            bg = self._canvas.create_rectangle(
-                max(0, subtitle_bbox[0] - pad), max(0, subtitle_bbox[1] - pad),
-                min(w, subtitle_bbox[2] + pad), min(h, subtitle_bbox[3] + pad),
-                fill=self.SUBTITLE_BG, outline="", tags="text",
-            )
-            self._canvas.tag_lower(bg)
+        if off == 0 and self._current_raw:
+            _draw_slot(self._current_raw, "", is_raw=True)
+
+        # ── Background pill behind all visible subtitle text ─────────────
+        has_content = (idx_a >= 0 or idx_b >= 0 or bool(self._current_raw))
+        if has_content:
+            all_bbox = self._canvas.bbox("text")
+            if all_bbox:
+                pad = 10
+                bg = self._canvas.create_rectangle(
+                    max(0, all_bbox[0] - pad), max(0, all_bbox[1] - pad),
+                    min(w, all_bbox[2] + pad), min(h, all_bbox[3] + pad),
+                    fill=self.SUBTITLE_BG, outline="", tags="text",
+                )
+                self._canvas.tag_lower(bg)
+
+        # ── Scroll hint (shown when viewing history) ──────────────────────
+        if off > 0:
+            hint = f"↑ 歷史 -{off}"
+            self._canvas.create_text(
+                w - 14, 8, text=hint, fill="#a0a0c0",
+                font=(self._FONT_FAMILY, 9), anchor="ne", tags="text")
+
+        # ── Disclaimer (bottom-right, always) ─────────────────────────────
+        self._canvas.create_text(
+            w - 10, h - 6, text=self.DISCLAIMER_TEXT,
+            fill=self.DISCLAIMER_COLOR, font=self.DISCLAIMER_FONT,
+            anchor="se", tags="text")
 
     def run(self):
         """啟動 tkinter mainloop（阻塞，必須在主執行緒呼叫）。"""
