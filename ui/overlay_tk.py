@@ -170,10 +170,6 @@ class SubtitleOverlay:
         self._history: deque = deque(maxlen=200)   # finalized entries {"original","translated"}
         self._scroll_offset: int = 0                 # 0=latest; wheel-up increases
         self._current_raw: str = ""                  # dim placeholder (raw ASR)
-        # legacy vars (still used by set_text/redraw until Tasks 2+3 replace them)
-        self._raw_str = ""
-        self._en_str = ""
-        self._zh_str = ""
         # drag/resize state (unchanged)
         self._drag_x = 0
         self._drag_y = 0
@@ -393,16 +389,41 @@ class SubtitleOverlay:
             self._drag_bar.configure(bg=self.DRAG_BAR_COLOR)
             self._redraw_text()
 
-    def set_text(self, raw: str = "", original: str = "", translated: str = ""):
-        """從任意執行緒安全地更新字幕（用 after() 排程到主執行緒）。"""
+    def update_raw(self, raw: str) -> None:
+        """任意執行緒：顯示原始 ASR 佔位文字（灰色淡顯）。"""
         if self._paused:
             return
         def _update():
-            self._raw_str = raw
-            self._en_str = original
-            self._zh_str = translated
+            self._current_raw = raw
+            self._scroll_offset = 0   # 新語音到來，自動回到最新
             self._redraw_text()
         self._root.after(0, _update)
+
+    def finalize(self, original: str, translated: str) -> None:
+        """任意執行緒：校正文字到來，推入歷史並清空 current。"""
+        if self._paused:
+            return
+        def _update():
+            if original or translated:
+                self._history.append({"original": original, "translated": translated})
+            self._current_raw = ""
+            self._scroll_offset = 0
+            self._redraw_text()
+        self._root.after(0, _update)
+
+    def reset(self) -> None:
+        """清空所有字幕（換設定、暫停恢復時呼叫）。"""
+        def _update():
+            self._history.clear()
+            self._current_raw = ""
+            self._scroll_offset = 0
+            self._redraw_text()
+        self._root.after(0, _update)
+
+    def set_text(self, raw: str = "", original: str = "", translated: str = "") -> None:
+        """向下相容：僅用於清空（reset）場景。"""
+        if not raw and not original and not translated:
+            self.reset()
 
     def _redraw_text(self):
         """Clear canvas and re-draw subtitle text with background pill and outline."""
