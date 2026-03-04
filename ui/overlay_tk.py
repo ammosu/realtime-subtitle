@@ -22,7 +22,7 @@ class SubtitleOverlay:
 
     TOOLBAR_HEIGHT = 48
     DRAG_BAR_HEIGHT = 6
-    WINDOW_HEIGHT = 200
+    WINDOW_HEIGHT = 310
     WINDOW_WIDTH = 900           # 預設值，__init__ 會依螢幕動態覆蓋
     CORNER_SIZE = 20
     EDGE_SIZE = 6
@@ -165,9 +165,12 @@ class SubtitleOverlay:
         self._toolbar.bind("<ButtonPress-1>", self._on_bar_press)
 
         self._paused = False
-        self._raw_str = ""
-        self._en_str = ""
-        self._zh_str = ""
+        # history & current-slot state
+        from collections import deque as _deque
+        self._history: _deque = _deque(maxlen=200)   # finalized entries {"original","translated"}
+        self._scroll_offset: int = 0                 # 0=latest; wheel-up increases
+        self._current_raw: str = ""                  # dim placeholder (raw ASR)
+        # drag/resize state (unchanged)
         self._drag_x = 0
         self._drag_y = 0
         self._resize_start = None   # (mouse_x, mouse_y, win_w, win_h, win_x, win_y, corner)
