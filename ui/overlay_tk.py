@@ -147,6 +147,9 @@ class SubtitleOverlay:
         self._src_btn_var = tk.StringVar(value="🔊 Monitor")
         _make_btn(toolbar, textvariable=self._src_btn_var, command=self._switch_source)
 
+        self._pause_btn_var = tk.StringVar(value="⏸ 暫停")
+        _make_btn(toolbar, textvariable=self._pause_btn_var, command=self._toggle_pause)
+
         _make_btn(toolbar, text="✕", command=self._do_close, side="right")
         _make_btn(toolbar, text="⚙", command=self._open_settings, side="right")
 
@@ -161,6 +164,7 @@ class SubtitleOverlay:
         self._toolbar.bind("<Motion>", self._on_bar_motion)
         self._toolbar.bind("<ButtonPress-1>", self._on_bar_press)
 
+        self._paused = False
         self._raw_str = ""
         self._en_str = ""
         self._zh_str = ""
@@ -372,8 +376,20 @@ class SubtitleOverlay:
         label = "🎤 Mic" if source == "mic" else "🔊 Monitor"
         self._root.after(0, lambda: self._src_btn_var.set(label))
 
+    def _toggle_pause(self):
+        self._paused = not self._paused
+        if self._paused:
+            self._pause_btn_var.set("▶ 繼續")
+            self._drag_bar.configure(bg="#7a4a00")
+        else:
+            self._pause_btn_var.set("⏸ 暫停")
+            self._drag_bar.configure(bg=self.DRAG_BAR_COLOR)
+            self._redraw_text()
+
     def set_text(self, raw: str = "", original: str = "", translated: str = ""):
         """從任意執行緒安全地更新字幕（用 after() 排程到主執行緒）。"""
+        if self._paused:
+            return
         def _update():
             self._raw_str = raw
             self._en_str = original

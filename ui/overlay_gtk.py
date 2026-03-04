@@ -48,6 +48,7 @@ class SubtitleOverlayGTK:
         self._resize_data = None   # (mx0, my0, w0, h0, wx0, wy0, zone)
         self._drag_offset = None   # (offset_x, offset_y)
         self._btn_rects: dict = {}
+        self._paused = False
 
         self._win = Gtk.Window(type=Gtk.WindowType.POPUP)
         self._win.set_skip_taskbar_hint(True)
@@ -131,10 +132,20 @@ class SubtitleOverlayGTK:
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # 拖拉條（半透明深灰）
-        cr.set_source_rgba(0.16, 0.16, 0.16, 0.85)
+        # 拖拉條（半透明深灰；暫停時顯示橘色）
+        if self._paused:
+            cr.set_source_rgba(0.6, 0.3, 0.0, 0.90)
+        else:
+            cr.set_source_rgba(0.16, 0.16, 0.16, 0.85)
         cr.rectangle(0, 0, w, self.DRAG_BAR_HEIGHT)
         cr.fill()
+        if self._paused:
+            layout = PangoCairo.create_layout(cr)
+            layout.set_text("⏸ 已暫停", -1)
+            layout.set_font_description(Pango.FontDescription.from_string("Arial 10"))
+            cr.move_to(6, 1)
+            cr.set_source_rgba(1, 1, 1, 0.9)
+            PangoCairo.show_layout(cr, layout)
 
         # 工具列
         if self._toolbar_visible:
@@ -207,6 +218,8 @@ class SubtitleOverlayGTK:
 
         draw_btn(f"[{self._direction_label}]", 10,      "direction")
         draw_btn(f"[{self._source_label}]",    155,     "source")
+        _pause_label = "▶ 繼續" if self._paused else "⏸ 暫停"
+        draw_btn(_pause_label,                 250,     "pause")
         draw_btn("⚙",                           win_w - 55, "settings")
         draw_btn("✕",                           win_w - 25, "close")
 
@@ -327,6 +340,9 @@ class SubtitleOverlayGTK:
                         self._da.queue_draw()
                     elif key == "source" and self._on_switch_source:
                         self._on_switch_source()
+                    elif key == "pause":
+                        self._paused = not self._paused
+                        self._da.queue_draw()
                     elif key == "settings" and self._on_open_settings:
                         self._on_open_settings()
                     return
@@ -403,6 +419,8 @@ class SubtitleOverlayGTK:
         GLib.idle_add(_u)
 
     def set_text(self, raw: str = "", original: str = "", translated: str = ""):
+        if self._paused:
+            return
         def _u():
             self._raw_str = raw
             self._en_str = original
