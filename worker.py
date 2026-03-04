@@ -432,3 +432,8 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         vad_thread.join(timeout=3)
         asr_thread.join(timeout=5)
         print("[Worker] Stopped.", flush=True)
+        # 本地模式：libchatllm.so 的 C++ 全域狀態在 Python GC 清理時
+        # 會觸發 double free crash（SIGABRT exit 134）。
+        # 使用 os._exit(0) 跳過 Python GC，確保 subprocess 乾淨退出。
+        if _backend == "local":
+            os._exit(0)

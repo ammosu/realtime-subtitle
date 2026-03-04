@@ -137,6 +137,7 @@ def main() -> None:
         "--direction" in _cli_args
     )
 
+    _settings: dict = {}
     _monitor_hint: tuple | None = None
     if not _has_cli_config and not args.list_devices:
         _file_config = load_config()
@@ -164,7 +165,8 @@ def main() -> None:
         AudioSource.list_devices()
         return
 
-    if not args.openai_api_key:
+    _is_local_backend = _settings.get("backend", "remote") == "local" if not _has_cli_config else False
+    if not args.openai_api_key and not _is_local_backend:
         log.error("OpenAI API Key 未設定，請在設定介面填入或設定 OPENAI_API_KEY 環境變數")
         return
 
@@ -177,6 +179,11 @@ def main() -> None:
         "mic_device": args.mic_device,
         "direction": args.direction,
         "context": args.context,
+        # 本地後端設定
+        "backend":           _settings.get("backend", "remote") if not _has_cli_config else "remote",
+        "local_model_path":  _settings.get("local_model_path", "") if not _has_cli_config else "",
+        "local_chatllm_dir": _settings.get("local_chatllm_dir", "") if not _has_cli_config else "",
+        "local_device_id":   _settings.get("local_device_id", 0) if not _has_cli_config else 0,
     }
 
     # 準備 IPC queues（用 SimpleQueue，不會在主程序產生 feeder 背景執行緒）
@@ -214,6 +221,10 @@ def main() -> None:
         "context": args.context,
         "show_raw": _show_raw,
         "show_corrected": _show_corrected,
+        "backend":           cfg.get("backend", "remote"),
+        "local_model_path":  cfg.get("local_model_path", ""),
+        "local_chatllm_dir": cfg.get("local_chatllm_dir", ""),
+        "local_device_id":   cfg.get("local_device_id", 0),
     }
 
     def _drain_queue(q: multiprocessing.SimpleQueue) -> None:
@@ -259,7 +270,9 @@ def main() -> None:
 
         # 用新設定重啟 worker
         new_cfg = dict(cfg)
-        for k in ("asr_server", "source", "monitor_device", "mic_device", "direction", "openai_api_key", "context"):
+        for k in ("asr_server", "source", "monitor_device", "mic_device", "direction",
+                  "openai_api_key", "context",
+                  "backend", "local_model_path", "local_chatllm_dir", "local_device_id"):
             if k in _current_config:
                 new_cfg[k] = _current_config[k]
         worker_ref[0] = _start_worker(new_cfg)

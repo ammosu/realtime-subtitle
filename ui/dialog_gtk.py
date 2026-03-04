@@ -105,154 +105,140 @@ class SetupDialogGTK:
         key_entry.set_activates_default(True)
         body.add(key_entry)
 
-        # ASR 後端選擇
-        _add_label("ASR 後端")
-        _saved_backend = self._config.get("backend", "remote")
-        backend_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
-        rb_local  = Gtk.RadioButton.new_with_label(None, "🖥 本地模型")
-        rb_remote = Gtk.RadioButton.new_with_label_from_widget(rb_local, "🌐 遠端伺服器")
-        if _saved_backend == "local":
-            rb_local.set_active(True)
-        else:
-            rb_remote.set_active(True)
-        backend_box.pack_start(rb_local,  False, False, 0)
-        backend_box.pack_start(rb_remote, False, False, 0)
-        body.add(backend_box)
-
-        # ── 本地後端設定區 ──────────────────────────────────────────────
-        local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        local_model_lbl = Gtk.Label(label="模型路徑 (.bin)", xalign=0)
-        local_model_lbl.get_style_context().add_class("field-label")
-        local_box.add(local_model_lbl)
-        # 自動偵測現有路徑作為預設值
+        # ── 推理裝置 ────────────────────────────────────────────────────
+        # 自動偵測路徑與 GPU 裝置
         try:
             import sys as _sys
             _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            from local_downloader import detect_existing_paths as _dep, DEFAULT_MODEL_PATH as _DMP
-            _det_model, _det_dir = _dep()
+            from local_downloader import (detect_existing_paths as _dep,
+                                          DEFAULT_MODEL_PATH as _DMP,
+                                          DEFAULT_CHATLLM_DIR as _DCD)
+            _det_model, _det_chatllm = _dep()
         except Exception:
-            _det_model, _det_dir, _DMP = "", "", None
+            _det_model, _det_chatllm, _DMP, _DCD = "", "", None, None
 
-        local_model_entry = Gtk.Entry()
-        local_model_entry.set_text(self._config.get("local_model_path", "") or _det_model)
-        local_model_entry.set_placeholder_text("/path/to/qwen3-asr-1.7b.bin")
-        local_box.add(local_model_entry)
-
-        local_dir_lbl = Gtk.Label(label="chatllm 目錄", xalign=0)
-        local_dir_lbl.get_style_context().add_class("field-label")
-        local_box.add(local_dir_lbl)
-        local_dir_entry = Gtk.Entry()
-        local_dir_entry.set_text(self._config.get("local_chatllm_dir", "") or _det_dir)
-        local_dir_entry.set_placeholder_text("/path/to/chatllm/")
-        local_box.add(local_dir_entry)
-
-        # 自動偵測 / 下載按鈕行
-        _lact_box = Gtk.Box(spacing=6, orientation=Gtk.Orientation.HORIZONTAL)
-        _auto_btn = Gtk.Button(label="⚡ 重新偵測")
-        _dl_btn   = Gtk.Button(label="⬇ 下載模型")
-        _lact_box.pack_start(_auto_btn, False, False, 0)
-        _lact_box.pack_start(_dl_btn,   False, False, 0)
-        local_box.add(_lact_box)
-        _dl_status = Gtk.Label(label="", xalign=0)
-        _dl_status.get_style_context().add_class("field-label")
-        local_box.add(_dl_status)
-
-        def _on_auto_detect(_b):
+        _gpu_devices: list[dict] = []
+        _chatllm_for_detect = _det_chatllm or self._config.get("local_chatllm_dir", "")
+        if _chatllm_for_detect:
             try:
-                from local_downloader import detect_existing_paths as _dep2
-                m, c = _dep2()
+                from local_asr_engine import detect_vulkan_devices
+                _gpu_devices = detect_vulkan_devices(_chatllm_for_detect)
             except Exception:
-                m, c = "", ""
-            if m:
-                local_model_entry.set_text(m)
-            if c:
-                local_dir_entry.set_text(c)
-            _dl_status.set_text(
-                "✅ 偵測完成" if (m and c) else "⚠ 未找到路徑，請手動填入或下載模型"
-            )
-        _auto_btn.connect("clicked", _on_auto_detect)
+                pass
+
+        # 可變路徑狀態（閉包用）
+        _model_path   = [self._config.get("local_model_path",  "") or _det_model]
+        _chatllm_path = [self._config.get("local_chatllm_dir", "") or _det_chatllm]
+
+        # 偵測到的裝置資訊欄
+        _add_label("偵測到的裝置")
+        _dev_info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        _cpu_info_lbl = Gtk.Label(label="✅ CPU（可用）", xalign=0)
+        _dev_info_box.add(_cpu_info_lbl)
+        for _gd in _gpu_devices:
+            _vram_gb  = _gd.get("vram_free", 0) / 1_073_741_824
+            _vram_str = f"（可用 VRAM {_vram_gb:.1f} GB）" if _vram_gb > 0.1 else ""
+            _gl = Gtk.Label(
+                label=f"✅ GPU：{_gd['name']}{_vram_str}（Vulkan）", xalign=0)
+            _dev_info_box.add(_gl)
+        if not _gpu_devices:
+            _dev_info_box.add(
+                Gtk.Label(label="ℹ 未偵測到獨立 GPU，僅 CPU 推理可用", xalign=0))
+        body.add(_dev_info_box)
+
+        # 推理方式選擇
+        _add_label("推理方式")
+        _saved_dev_id  = int(self._config.get("local_device_id", 0))
+        _dev_radio_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        rb_cpu = Gtk.RadioButton.new_with_label(None, "🖥 CPU")
+        _dev_radio_box.pack_start(rb_cpu, False, False, 0)
+        _gpu_rbs: list = []
+        for _gd in _gpu_devices:
+            rb_g = Gtk.RadioButton.new_with_label_from_widget(
+                rb_cpu, f"⚡ GPU ({_gd['name']}) [Vulkan]")
+            rb_g._gpu_id = _gd["id"]
+            _dev_radio_box.pack_start(rb_g, False, False, 0)
+            _gpu_rbs.append(rb_g)
+        # 預設：有 GPU 且 saved_dev_id > 0 → 選 GPU；否則 CPU
+        _gpu_activated = False
+        for rb in _gpu_rbs:
+            if rb._gpu_id == _saved_dev_id:
+                rb.set_active(True)
+                _gpu_activated = True
+                break
+        if not _gpu_activated and _gpu_rbs and _saved_dev_id == 0:
+            # 上次選 CPU，維持 rb_cpu active（預設）
+            pass
+        body.add(_dev_radio_box)
+
+        # 模型狀態 + 下載按鈕
+        _add_label("模型（qwen3-asr-1.7b.bin）")
+        _model_row = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        _model_status_lbl = Gtk.Label(xalign=0)
+        _model_status_lbl.set_hexpand(True)
+        _dl_btn = Gtk.Button(label="⬇ 下載（~2.3 GB）")
+        _model_row.pack_start(_model_status_lbl, True, True, 0)
+        _model_row.pack_start(_dl_btn, False, False, 0)
+        body.add(_model_row)
+        _dl_prog_lbl = Gtk.Label(label="", xalign=0)
+        _dl_prog_lbl.get_style_context().add_class("field-label")
+        body.add(_dl_prog_lbl)
+
+        def _refresh_model_status():
+            if _model_path[0]:
+                _model_status_lbl.set_markup(
+                    f'<span color="green">✅ 已就緒：{os.path.basename(_model_path[0])}</span>')
+                _dl_btn.hide()
+            else:
+                _model_status_lbl.set_markup('<span color="red">⚠ 未找到模型檔案</span>')
+                _dl_btn.show()
 
         def _on_dl(_b):
             import threading
             from gi.repository import GLib
             _dl_btn.set_sensitive(False)
-            _auto_btn.set_sensitive(False)
             try:
                 from local_downloader import download_gguf as _dg, DEFAULT_MODEL_PATH as _dmp
             except Exception as ex:
-                _dl_status.set_text(f"❌ 載入失敗：{ex}")
+                _dl_prog_lbl.set_text(f"❌ 錯誤：{ex}")
                 _dl_btn.set_sensitive(True)
                 return
 
             def _cb(pct, msg):
-                GLib.idle_add(lambda: _dl_status.set_text(msg) or False)
+                GLib.idle_add(lambda: _dl_prog_lbl.set_text(msg) or False)
 
             def _run():
                 try:
                     _dg(progress_cb=_cb)
                     def _done():
-                        local_model_entry.set_text(str(_dmp))
+                        _model_path[0] = str(_dmp)
+                        _refresh_model_status()
+                        _dl_prog_lbl.set_text("✅ 下載完成")
                         _dl_btn.set_sensitive(True)
-                        _auto_btn.set_sensitive(True)
                         return False
                     GLib.idle_add(_done)
                 except Exception as ex:
                     def _err():
-                        _dl_status.set_text(f"❌ 下載失敗：{ex}")
+                        _dl_prog_lbl.set_text(f"❌ 下載失敗：{ex}")
                         _dl_btn.set_sensitive(True)
-                        _auto_btn.set_sensitive(True)
                         return False
                     GLib.idle_add(_err)
             threading.Thread(target=_run, daemon=True).start()
         _dl_btn.connect("clicked", _on_dl)
 
-        local_dev_lbl = Gtk.Label(label="GPU 裝置（留空 = CPU / 自動）", xalign=0)
-        local_dev_lbl.get_style_context().add_class("field-label")
-        local_box.add(local_dev_lbl)
-        local_dev_combo = Gtk.ComboBoxText.new_with_entry()
-        local_dev_combo.append_text("CPU（僅使用 CPU）")
-        _saved_dev_id = int(self._config.get("local_device_id", 0))
-        # 嘗試偵測 Vulkan 裝置
-        _chatllm_dir = self._config.get("local_chatllm_dir", "")
-        if _chatllm_dir:
-            try:
-                import sys as _sys
-                _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                from local_asr_engine import detect_vulkan_devices
-                for dev in detect_vulkan_devices(_chatllm_dir):
-                    local_dev_combo.append_text(f"GPU:{dev['id']} {dev['name']}")
-            except Exception:
-                pass
-        local_dev_combo.set_active(min(_saved_dev_id + 1, 0))  # +1 因為第 0 項是 CPU
-        local_box.add(local_dev_combo)
-
-        body.add(local_box)
-
-        # ── 遠端後端設定區 ──────────────────────────────────────────────
-        remote_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        remote_url_lbl = Gtk.Label(label="ASR Server URL", xalign=0)
-        remote_url_lbl.get_style_context().add_class("field-label")
-        remote_box.add(remote_url_lbl)
-        url_entry = Gtk.Entry()
-        url_entry.set_text(self._config.get("asr_server", "http://localhost:8000"))
-        url_entry.set_placeholder_text("http://localhost:8000")
-        url_entry.set_activates_default(True)
-        remote_box.add(url_entry)
-
-        body.add(remote_box)
-
-        def _on_backend_toggle(_btn):
-            if rb_local.get_active():
-                remote_box.hide()
-                local_box.show_all()
-            else:
-                local_box.hide()
-                remote_box.show_all()
-
-        rb_local.connect("toggled", _on_backend_toggle)
-        _on_backend_toggle(None)  # 初始化顯示
+        # chatllm 執行環境狀態
+        _add_label("chatllm 執行環境")
+        _chatllm_lbl = Gtk.Label(xalign=0)
+        _chatllm_lbl.set_line_wrap(True)
+        if _chatllm_path[0]:
+            _chatllm_lbl.set_markup(
+                f'<span color="green">✅ 已找到：{_chatllm_path[0]}</span>')
+        else:
+            _default_dir = str(_DCD) if _DCD else "~/.local/share/realtime-subtitle/chatllm/"
+            _chatllm_lbl.set_markup(
+                f'<span color="orange">⚠ 未找到 chatllm 執行環境\n'
+                f'請從 chatllm.cpp 編譯後放至：{_default_dir}</span>')
+        body.add(_chatllm_lbl)
 
         # 音訊來源：系統音訊 / 麥克風 切換
         _add_label("音訊來源")
@@ -466,35 +452,34 @@ class SetupDialogGTK:
 
         win.show_all()
         _on_source_toggle(None)  # show_all 後重設裝置顯示
+        _refresh_model_status()  # show_all 後更新下載按鈕可見性
 
         while True:
             response = win.run()
             if response != Gtk.ResponseType.OK:
                 break
-            _is_local = rb_local.get_active()
-            # 遠端模式必填 API Key；本地模式 API Key 選填（翻譯用）
-            if not _is_local and not key_entry.get_text().strip():
-                warn_label.set_markup('<span color="red">⚠ 遠端模式需填入 OpenAI API Key</span>')
+            # 模型與 chatllm 必須存在才能啟動
+            if not _model_path[0]:
+                warn_label.set_markup('<span color="red">⚠ 請先下載模型檔案</span>')
                 continue
-            if _is_local:
-                if not local_model_entry.get_text().strip():
-                    warn_label.set_markup('<span color="red">⚠ 請填入本地模型路徑</span>')
-                    continue
-                if not local_dir_entry.get_text().strip():
-                    warn_label.set_markup('<span color="red">⚠ 請填入 chatllm 目錄</span>')
-                    continue
+            if not _chatllm_path[0]:
+                warn_label.set_markup('<span color="red">⚠ 未找到 chatllm 執行環境，請手動安裝</span>')
+                continue
             _is_monitor = rb_monitor.get_active()
             _src_lbl = src_combo.get_active_text() or "en (English)"
             _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
-            # GPU 裝置 ID：下拉第 0 項為 CPU，第 1+ 項為 GPU:N
-            _dev_idx = local_dev_combo.get_active()
-            _local_dev_id = max(0, _dev_idx - 1) if _dev_idx > 0 else 0
+            # 取得選中的裝置 ID（CPU = 0，GPU = gpu_id）
+            _local_dev_id = 0
+            for rb in _gpu_rbs:
+                if rb.get_active():
+                    _local_dev_id = rb._gpu_id
+                    break
             self._result = {
-                "backend": "local" if _is_local else "remote",
-                "local_model_path": local_model_entry.get_text().strip(),
-                "local_chatllm_dir": local_dir_entry.get_text().strip(),
+                "backend": "local",
+                "local_model_path": _model_path[0],
+                "local_chatllm_dir": _chatllm_path[0],
                 "local_device_id": _local_dev_id,
-                "asr_server": url_entry.get_text().strip() or "http://localhost:8000",
+                "asr_server": "http://localhost:8000",
                 "source": "monitor" if _is_monitor else "mic",
                 "monitor_device": monitor_combo.get_child().get_text().strip(),
                 "mic_device": mic_combo.get_child().get_text().strip(),
