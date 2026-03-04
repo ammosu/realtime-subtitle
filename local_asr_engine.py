@@ -190,12 +190,8 @@ class _DLLASRRunner:
         else:
             lib = ctypes.CDLL(str(dll_path))
 
-        if sys.platform == "win32":
-            PRINTFUNC = ctypes.WINFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p)
-            ENDFUNC   = ctypes.WINFUNCTYPE(None, ctypes.c_void_p)
-        else:
-            PRINTFUNC = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p)
-            ENDFUNC   = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
+        PRINTFUNC = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p)
+        ENDFUNC   = ctypes.CFUNCTYPE(None, ctypes.c_void_p)
 
         lib.chatllm_append_init_param.argtypes = [ctypes.c_char_p]
         lib.chatllm_append_init_param.restype  = None
@@ -335,6 +331,9 @@ class LocalASREngine:
         if not Path(model_path).exists():
             raise FileNotFoundError(f"模型不存在：{model_path}")
 
+        self._model_path  = str(model_path)
+        self._chatllm_dir = str(chatllm_dir)
+
         # OpenCC 簡→繁
         try:
             import opencc
@@ -404,7 +403,20 @@ class LocalASREngine:
             tmp_path = tf.name
         try:
             wavfile.write(tmp_path, SAMPLE_RATE, audio_int16)
-            text = self._runner.transcribe(tmp_path, sys_prompt=sys_prompt)
+            try:
+                text = self._runner.transcribe(tmp_path, sys_prompt=sys_prompt)
+            except RuntimeError as e:
+                # DLL 模式失敗時自動 fallback 到 subprocess 模式
+                if isinstance(self._runner, _DLLASRRunner):
+                    print(f"[LocalASR] DLL 轉錄失敗（{e}），切換到 subprocess 模式", flush=True)
+                    self._runner = _ChatLLMRunner(
+                        model_path=self._model_path,
+                        chatllm_dir=self._chatllm_dir,
+                        n_gpu_layers=99,
+                    )
+                    text = self._runner.transcribe(tmp_path, sys_prompt=sys_prompt)
+                else:
+                    raise
         finally:
             try:
                 os.remove(tmp_path)

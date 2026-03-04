@@ -240,6 +240,34 @@ class _SetupWxDlg(wx.Dialog):
         self._show_raw       = bool(config.get("show_raw", False))
         self._show_corrected = bool(config.get("show_corrected", True))
 
+        # ── 本地 ASR 路徑偵測 ──────────────────────────────────────────
+        try:
+            import sys as _sys
+            _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from local_downloader import (detect_existing_paths as _dep,
+                                          DEFAULT_MODEL_PATH as _DMP,
+                                          DEFAULT_CHATLLM_DIR as _DCD)
+            _det_model, _det_chatllm = _dep()
+            self._default_model_path   = _DMP
+            self._default_chatllm_dir  = _DCD
+        except Exception:
+            _det_model = _det_chatllm = ""
+            self._default_model_path  = None
+            self._default_chatllm_dir = None
+
+        self._model_path   = [config.get("local_model_path",  "") or _det_model]
+        self._chatllm_path = [config.get("local_chatllm_dir", "") or _det_chatllm]
+
+        # ── GPU 偵測 ───────────────────────────────────────────────────
+        self._gpu_devices: list[dict] = []
+        _chatllm_for_detect = self._chatllm_path[0]
+        if _chatllm_for_detect:
+            try:
+                from local_asr_engine import detect_vulkan_devices
+                self._gpu_devices = detect_vulkan_devices(_chatllm_for_detect)
+            except Exception:
+                pass
+
         self.SetBackgroundColour(_BG)
         self.SetFont(wx.Font(wx.FontInfo(10).FaceName(_UI_FONT_FACE)))
         self._build()
@@ -247,8 +275,9 @@ class _SetupWxDlg(wx.Dialog):
         self.Bind(wx.EVT_DPI_CHANGED, self._on_dpi_changed)
         self.Bind(wx.EVT_CHAR_HOOK,   self._on_key)
 
-        self.SetSize(self.FromDIP(wx.Size(460, 600)))
+        self.SetSize(self.FromDIP(wx.Size(460, -1)))
         self.Layout()
+        self.Fit()
 
         if initial_pos:
             self.SetPosition(wx.Point(*initial_pos))
@@ -290,27 +319,88 @@ class _SetupWxDlg(wx.Dialog):
         body.SetBackgroundColour(_BG)
         b = wx.BoxSizer(wx.VERTICAL)
 
-        def _row(label, widget, top=14):
-            lbl = _dark(wx.StaticText(body, label=label), fg=_SUBTEXT)
-            b.Add(lbl, 0, wx.BOTTOM, self.FromDIP(4))
-            b.Add(widget, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(top))
+        def _lbl(text):
+            return _dark(wx.StaticText(body, label=text), fg=_SUBTEXT)
 
-        # OpenAI API Key
+        # OpenAI API Key（翻譯用，選填）
+        b.Add(_lbl("OpenAI API Key（翻譯用）"), 0, wx.BOTTOM, self.FromDIP(4))
         _existing_key = (
             self._config.get("openai_api_key", "")
             or os.environ.get("OPENAI_API_KEY", "")
         )
         _key_wrap, self._key_entry = _make_entry(body, _existing_key, wx.TE_PASSWORD)
-        _row("OpenAI API Key", _key_wrap)
+        b.Add(_key_wrap, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(14))
 
-        # ASR Server URL
-        _url_wrap, self._url_entry = _make_entry(
-            body, self._config.get("asr_server", "http://localhost:8000"))
-        _row("ASR Server URL", _url_wrap)
+        # ── 偵測到的裝置 ─────────────────────────────────────────────────────
+        b.Add(_lbl("偵測到的裝置"), 0, wx.BOTTOM, self.FromDIP(4))
+        b.Add(_dark(wx.StaticText(body, label="✅ CPU（可用）"), fg=_TEXT),
+              0, wx.BOTTOM, self.FromDIP(2))
+        if self._gpu_devices:
+            for _gd in self._gpu_devices:
+                _vram_gb  = _gd.get("vram_free", 0) / 1_073_741_824
+                _vram_str = f"（可用 VRAM {_vram_gb:.1f} GB）" if _vram_gb > 0.1 else ""
+                b.Add(_dark(wx.StaticText(
+                    body, label=f"✅ GPU：{_gd['name']}{_vram_str}（Vulkan）"),
+                    fg=_TEXT), 0, wx.BOTTOM, self.FromDIP(2))
+        else:
+            b.Add(_dark(wx.StaticText(
+                body, label="ℹ 未偵測到獨立 GPU，僅 CPU 推理可用"),
+                fg=_SUBTEXT), 0, wx.BOTTOM, self.FromDIP(2))
 
-        # Audio source
-        b.Add(_dark(wx.StaticText(body, label="音訊來源"), fg=_SUBTEXT),
-              0, wx.BOTTOM, self.FromDIP(4))
+        # ── 推理方式 ─────────────────────────────────────────────────────────
+        b.Add(_lbl("推理方式"), 0, wx.TOP | wx.BOTTOM, self.FromDIP(4))
+        dev_radio_row = wx.BoxSizer(wx.HORIZONTAL)
+        self._rb_cpu = _dark(
+            wx.RadioButton(body, label="🖥 CPU", style=wx.RB_GROUP), fg=_TEXT)
+        dev_radio_row.Add(self._rb_cpu, 0, wx.RIGHT, self.FromDIP(16))
+        self._gpu_rbs: list[tuple[wx.RadioButton, int]] = []
+        _saved_dev_id = int(self._config.get("local_device_id", 0))
+        _gpu_activated = False
+        for _gd in self._gpu_devices:
+            rb = _dark(wx.RadioButton(
+                body, label=f"⚡ GPU ({_gd['name']}) [Vulkan]"), fg=_TEXT)
+            rb._gpu_id = _gd["id"]
+            dev_radio_row.Add(rb, 0, wx.RIGHT, self.FromDIP(8))
+            self._gpu_rbs.append((rb, _gd["id"]))
+            if _gd["id"] == _saved_dev_id:
+                rb.SetValue(True)
+                _gpu_activated = True
+        if not _gpu_activated:
+            self._rb_cpu.SetValue(True)
+        b.Add(dev_radio_row, 0, wx.BOTTOM, self.FromDIP(10))
+
+        # ── 模型 ─────────────────────────────────────────────────────────────
+        b.Add(_lbl("模型（qwen3-asr-1.7b.bin）"), 0, wx.BOTTOM, self.FromDIP(4))
+        model_row = wx.BoxSizer(wx.HORIZONTAL)
+        self._model_status_lbl = _dark(
+            wx.StaticText(body, label=""), fg=_TEXT)
+        self._model_status_lbl.SetMinSize(self.FromDIP(wx.Size(200, -1)))
+        self._dl_btn = _btn(body, "⬇ 下載（~2.3 GB）", (-1, 28))
+        self._dl_btn.Bind(wx.EVT_BUTTON, self._on_download)
+        model_row.Add(self._model_status_lbl, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
+                      self.FromDIP(8))
+        model_row.Add(self._dl_btn, 0, wx.ALIGN_CENTER_VERTICAL)
+        b.Add(model_row, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(4))
+        self._dl_prog_lbl = _dark(wx.StaticText(body, label=""), fg=_SUBTEXT)
+        b.Add(self._dl_prog_lbl, 0, wx.BOTTOM, self.FromDIP(10))
+
+        # ── chatllm 執行環境 ──────────────────────────────────────────────────
+        b.Add(_lbl("chatllm 執行環境"), 0, wx.BOTTOM, self.FromDIP(4))
+        if self._chatllm_path[0]:
+            _chatllm_text = f"✅ 已找到：{self._chatllm_path[0]}"
+            _chatllm_fg   = _TEXT
+        else:
+            _default_dir = str(self._default_chatllm_dir) if self._default_chatllm_dir \
+                           else "~/.local/share/realtime-subtitle/chatllm/"
+            _chatllm_text = (f"⚠ 未找到 chatllm 執行環境\n"
+                             f"請從 chatllm.cpp 編譯後放至：{_default_dir}")
+            _chatllm_fg   = wx.Colour(251, 146, 60)   # orange
+        _chatllm_lbl = _dark(wx.StaticText(body, label=_chatllm_text), fg=_chatllm_fg)
+        _chatllm_lbl.Wrap(self.FromDIP(420))
+        b.Add(_chatllm_lbl, 0, wx.BOTTOM, self.FromDIP(14))
+
+        # ── 音訊來源 ──────────────────────────────────────────────────────────
+        b.Add(_lbl("音訊來源"), 0, wx.BOTTOM, self.FromDIP(4))
         src_row = wx.BoxSizer(wx.HORIZONTAL)
         self._rb_monitor = _dark(
             wx.RadioButton(body, label="🔊 系統音訊", style=wx.RB_GROUP), fg=_TEXT)
@@ -364,9 +454,8 @@ class _SetupWxDlg(wx.Dialog):
         self._rb_monitor.Bind(wx.EVT_RADIOBUTTON, self._on_source_change)
         self._rb_mic.Bind(wx.EVT_RADIOBUTTON, self._on_source_change)
 
-        # Translation direction
-        b.Add(_dark(wx.StaticText(body, label="翻譯方向"), fg=_SUBTEXT),
-              0, wx.BOTTOM, self.FromDIP(4))
+        # ── 翻譯方向 ──────────────────────────────────────────────────────────
+        b.Add(_lbl("翻譯方向"), 0, wx.BOTTOM, self.FromDIP(4))
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         dir_row = wx.BoxSizer(wx.HORIZONTAL)
         self._src_choice = _dark(
@@ -417,6 +506,7 @@ class _SetupWxDlg(wx.Dialog):
 
         self.SetSizer(outer)
         self._on_source_change(None)
+        self._refresh_model_status()
 
     def _on_source_change(self, _event):
         is_monitor = self._rb_monitor.GetValue()
@@ -430,6 +520,46 @@ class _SetupWxDlg(wx.Dialog):
             mic.Show()
         self._dev_panel.Layout()
         self.Layout()
+
+    def _refresh_model_status(self):
+        if self._model_path[0]:
+            self._model_status_lbl.SetLabel(
+                f"✅ 已就緒：{os.path.basename(self._model_path[0])}")
+            self._model_status_lbl.SetForegroundColour(wx.Colour(74, 222, 128))  # green
+            self._dl_btn.Hide()
+        else:
+            self._model_status_lbl.SetLabel("⚠ 未找到模型檔案")
+            self._model_status_lbl.SetForegroundColour(_WARN)
+            self._dl_btn.Show()
+        self._model_status_lbl.GetParent().Layout()
+
+    def _on_download(self, _event):
+        import threading
+        self._dl_btn.Disable()
+        try:
+            from local_downloader import download_gguf as _dg, DEFAULT_MODEL_PATH as _dmp
+        except Exception as ex:
+            wx.CallAfter(self._dl_prog_lbl.SetLabel, f"❌ 錯誤：{ex}")
+            wx.CallAfter(self._dl_btn.Enable)
+            return
+
+        def _cb(pct, msg):
+            wx.CallAfter(self._dl_prog_lbl.SetLabel, msg)
+
+        def _run():
+            try:
+                _dg(progress_cb=_cb)
+                def _done():
+                    self._model_path[0] = str(_dmp)
+                    self._refresh_model_status()
+                    self._dl_prog_lbl.SetLabel("✅ 下載完成")
+                    self._dl_btn.Enable()
+                wx.CallAfter(_done)
+            except Exception as ex:
+                wx.CallAfter(self._dl_prog_lbl.SetLabel, f"❌ 下載失敗：{ex}")
+                wx.CallAfter(self._dl_btn.Enable)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _on_swap(self, _event):
         si = self._src_choice.GetSelection()
@@ -455,10 +585,14 @@ class _SetupWxDlg(wx.Dialog):
         adv.Destroy()
 
     def _on_ok(self, _event):
-        api_key = self._key_entry.GetValue().strip()
-        if not api_key:
-            self._warn_lbl.SetLabel("⚠ 請填入 OpenAI API Key")
+        # 驗證：model 與 chatllm 必須存在
+        if not self._model_path[0]:
+            self._warn_lbl.SetLabel("⚠ 請先下載模型檔案")
             return
+        if not self._chatllm_path[0]:
+            self._warn_lbl.SetLabel("⚠ 未找到 chatllm 執行環境，請手動安裝")
+            return
+
         is_monitor = self._rb_monitor.GetValue()
         mon_val = (
             self._mon_choice.GetStringSelection()
@@ -472,21 +606,33 @@ class _SetupWxDlg(wx.Dialog):
         )
         src_code = lang_label_to_code(self._src_choice.GetStringSelection())
         tgt_code = lang_label_to_code(self._tgt_choice.GetStringSelection())
+
+        # 推理裝置 ID
+        _local_dev_id = 0
+        for rb, gid in self._gpu_rbs:
+            if rb.GetValue():
+                _local_dev_id = gid
+                break
+
         x, y = self.GetPosition()
         self.result = {
-            "asr_server":     self._url_entry.GetValue().strip() or "http://localhost:8000",
-            "source":         "monitor" if is_monitor else "mic",
-            "monitor_device": mon_val,
-            "mic_device":     mic_val,
-            "direction":      f"{src_code}→{tgt_code}",
-            "openai_api_key": api_key,
-            "context":        self._context,
-            "en_font_size":   self._en_size,
-            "zh_font_size":   self._zh_size,
-            "show_raw":       self._show_raw,
-            "show_corrected": self._show_corrected,
-            "_dialog_x":      x,
-            "_dialog_y":      y,
+            "backend":           "local",
+            "local_model_path":  self._model_path[0],
+            "local_chatllm_dir": self._chatllm_path[0],
+            "local_device_id":   _local_dev_id,
+            "asr_server":        "http://localhost:8000",
+            "source":            "monitor" if is_monitor else "mic",
+            "monitor_device":    mon_val,
+            "mic_device":        mic_val,
+            "direction":         f"{src_code}→{tgt_code}",
+            "openai_api_key":    self._key_entry.GetValue().strip(),
+            "context":           self._context,
+            "en_font_size":      self._en_size,
+            "zh_font_size":      self._zh_size,
+            "show_raw":          self._show_raw,
+            "show_corrected":    self._show_corrected,
+            "_dialog_x":         x,
+            "_dialog_y":         y,
         }
         self.EndModal(wx.ID_OK)
 

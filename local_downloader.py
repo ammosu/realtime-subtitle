@@ -21,7 +21,7 @@ from pathlib import Path
 # ── 預設目錄 ──────────────────────────────────────────────────────────
 _DEFAULT_DIR = Path.home() / ".local" / "share" / "realtime-subtitle"
 DEFAULT_MODEL_PATH   = _DEFAULT_DIR / "models" / "qwen3-asr-1.7b.bin"
-DEFAULT_CHATLLM_DIR  = _DEFAULT_DIR / "chatllm"
+DEFAULT_CHATLLM_DIR  = _DEFAULT_DIR / "chatllm" / "bin"
 
 # ── HuggingFace 下載來源 ───────────────────────────────────────────────
 _HF_COLLECTION = "https://huggingface.co/dseditor/Collection/resolve/main"
