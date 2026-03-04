@@ -112,6 +112,9 @@ class SubtitleOverlay:
         # 四角縮放：motion 偵測游標位置，press 開始縮放
         self._canvas.bind("<Motion>", self._on_canvas_motion)
         self._canvas.bind("<ButtonPress-1>", self._on_canvas_press)
+        self._canvas.bind("<MouseWheel>", self._on_scroll)   # Windows
+        self._canvas.bind("<Button-4>",   self._on_scroll)   # Linux scroll up
+        self._canvas.bind("<Button-5>",   self._on_scroll)   # Linux scroll down
 
         # ── 工具列 (created after canvas so it has higher z-order) ──
         toolbar = tk.Frame(self._root, bg=self.TOOLBAR_BG, height=self.TOOLBAR_HEIGHT)
@@ -357,6 +360,18 @@ class SubtitleOverlay:
         self._resize_start = None
         self._root.unbind("<B1-Motion>")
         self._root.unbind("<ButtonRelease-1>")
+
+    def _on_scroll(self, event) -> None:
+        """滾輪：scroll up = 往歷史；scroll down = 往最新。"""
+        # Windows: event.delta (+120 = up, -120 = down)
+        # Linux:   event.num (4 = up, 5 = down)
+        going_older = (event.delta > 0) if event.delta else (event.num == 4)
+        if going_older:
+            max_off = max(0, len(self._history) - 1)
+            self._scroll_offset = min(max_off, self._scroll_offset + 1)
+        else:
+            self._scroll_offset = max(0, self._scroll_offset - 1)
+        self._redraw_text()
 
     def _toggle_direction(self):
         if self._on_toggle_direction:
