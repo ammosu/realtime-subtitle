@@ -170,6 +170,10 @@ class SubtitleOverlay:
         self._history: _deque = _deque(maxlen=200)   # finalized entries {"original","translated"}
         self._scroll_offset: int = 0                 # 0=latest; wheel-up increases
         self._current_raw: str = ""                  # dim placeholder (raw ASR)
+        # legacy vars (still used by set_text/redraw until Tasks 2+3 replace them)
+        self._raw_str = ""
+        self._en_str = ""
+        self._zh_str = ""
         # drag/resize state (unchanged)
         self._drag_x = 0
         self._drag_y = 0
