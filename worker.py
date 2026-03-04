@@ -100,6 +100,9 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     elif _backend == "remote":
         _asr_client = ASRClient(cfg["asr_server"])
         print(f"[Worker] 連線至 ASR 伺服器：{cfg['asr_server']}", flush=True)
+        if cfg.get("openai_api_key"):
+            from correction import LLMCorrector
+            _asr_corrector = LLMCorrector(cfg["openai_api_key"])
 
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
