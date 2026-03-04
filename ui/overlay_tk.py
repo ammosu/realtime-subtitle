@@ -391,9 +391,9 @@ class SubtitleOverlay:
 
     def update_raw(self, raw: str) -> None:
         """任意執行緒：顯示原始 ASR 佔位文字（灰色淡顯）。"""
-        if self._paused:
-            return
         def _update():
+            if self._paused:
+                return
             self._current_raw = raw
             self._scroll_offset = 0   # 新語音到來，自動回到最新
             self._redraw_text()
@@ -401,9 +401,9 @@ class SubtitleOverlay:
 
     def finalize(self, original: str, translated: str) -> None:
         """任意執行緒：校正文字到來，推入歷史並清空 current。"""
-        if self._paused:
-            return
         def _update():
+            if self._paused:
+                return
             if original or translated:
                 self._history.append({"original": original, "translated": translated})
             self._current_raw = ""
