@@ -4,6 +4,7 @@ import logging
 import subprocess
 import sys
 import tkinter as tk
+from collections import deque
 
 from languages import parse_direction, swap_direction
 
@@ -166,8 +167,7 @@ class SubtitleOverlay:
 
         self._paused = False
         # history & current-slot state
-        from collections import deque as _deque
-        self._history: _deque = _deque(maxlen=200)   # finalized entries {"original","translated"}
+        self._history: deque = deque(maxlen=200)   # finalized entries {"original","translated"}
         self._scroll_offset: int = 0                 # 0=latest; wheel-up increases
         self._current_raw: str = ""                  # dim placeholder (raw ASR)
         # legacy vars (still used by set_text/redraw until Tasks 2+3 replace them)
