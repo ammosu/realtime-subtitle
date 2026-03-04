@@ -11,7 +11,7 @@ from collections import deque
 
 import numpy as np
 
-from asr import ASRStreamingSession, TranslationDebouncer
+from asr import ASRClient, ASRStreamingSession, TranslationDebouncer
 from audio import MonitorAudioSource, MicrophoneAudioSource
 from constants import TARGET_SR
 from languages import parse_direction
@@ -77,9 +77,12 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     _asr_lang    = _src_lang if _src_lang else None  # 傳給 ASR 的語言提示
     _asr_context = cfg.get("context", "")            # 辨識提示詞
 
-    # ── 本地後端初始化（blocking，在 worker process 裡載入模型）──────────
-    _backend = cfg.get("backend", "remote")
-    _local_engine  = None
+    # ── 後端初始化 ─────────────────────────────────────────────────────────
+    # local:  直接載入 chatllm 模型，在 process 內推論
+    # remote: 連線至 QwenASR HTTP server，呼叫 /api/transcribe（Option A）
+    _backend      = cfg.get("backend", "remote")
+    _local_engine = None
+    _asr_client   = None
     _asr_corrector = None
     if _backend == "local":
         from local_asr_engine import LocalASREngine
@@ -94,6 +97,12 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
             from correction import LLMCorrector
             _asr_corrector = LLMCorrector(cfg["openai_api_key"])
         print("[Worker] 本地 ASR 模型載入完成", flush=True)
+    elif _backend == "remote":
+        _asr_client = ASRClient(cfg["asr_server"])
+        print(f"[Worker] 連線至 ASR 伺服器：{cfg['asr_server']}", flush=True)
+        if cfg.get("openai_api_key"):
+            from correction import LLMCorrector
+            _asr_corrector = LLMCorrector(cfg["openai_api_key"])
 
     # Silero VAD 常數（v6 模型）
     VAD_CHUNK = 576               # 36ms @ 16kHz
@@ -292,10 +301,16 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                     else:
                         prev_audio_tail = audio_data.copy()
 
-                    # 轉錄
-                    raw = _local_engine.transcribe(
-                        audio_data, language=_asr_lang, context=_asr_context
-                    )
+                    # 轉錄（本地引擎或遠端 /api/transcribe，二擇一）
+                    if _local_engine is not None:
+                        raw = _local_engine.transcribe(
+                            audio_data, language=_asr_lang, context=_asr_context
+                        )
+                    else:
+                        result = _asr_client.transcribe(
+                            audio_data, language=_asr_lang, context=_asr_context
+                        )
+                        raw = result.get("text", "")
                     if not raw:
                         continue
 
@@ -319,8 +334,12 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
                 buf = []
 
     def asr_loop() -> None:
-        """ASR 執行緒分派器：依 backend 設定選擇本地或遠端模式。"""
-        if _backend == "local" and _local_engine is not None:
+        """
+        ASR 執行緒分派器：
+        - local:  本地 chatllm 引擎（asr_loop_local）
+        - remote: 遠端 /api/transcribe，Option A（client VAD+buffer，server 轉錄）
+        """
+        if _backend in ("local", "remote"):
             asr_loop_local()
             return
         _asr_loop_remote()
