@@ -92,8 +92,8 @@ class SetupDialogGTK:
                 lbl.get_style_context().add_class("first")
             body.add(lbl)
 
-        # OpenAI API Key（翻譯用，local 模式下為選填）
-        _add_label("OpenAI API Key（翻譯用）", first=True)
+        # OpenAI API Key（翻譯用，選填）
+        _add_label("OpenAI API Key（翻譯用，選填）", first=True)
         key_entry = Gtk.Entry()
         key_entry.set_visibility(False)
         key_entry.set_placeholder_text("sk-...")
@@ -105,7 +105,29 @@ class SetupDialogGTK:
         key_entry.set_activates_default(True)
         body.add(key_entry)
 
-        # ── 推理裝置 ────────────────────────────────────────────────────
+        # ── 運算模式 ─────────────────────────────────────────────────────
+        _add_label("運算模式")
+        _mode_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
+        _saved_mode = self._config.get("backend", "local")
+        _rb_local  = Gtk.RadioButton.new_with_label(None, "🖥 本地模型")
+        _rb_server = Gtk.RadioButton.new_with_label_from_widget(_rb_local, "🌐 外部伺服器（QwenASR）")
+        if _saved_mode == "remote":
+            _rb_server.set_active(True)
+        else:
+            _rb_local.set_active(True)
+        _mode_box.pack_start(_rb_local,  False, False, 0)
+        _mode_box.pack_start(_rb_server, False, False, 0)
+        body.add(_mode_box)
+
+        # ── 本地模型區 ─────────────────────────────────────────────────
+        _local_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        body.add(_local_box)
+
+        def _add_local_label(text):
+            lbl = Gtk.Label(label=text, xalign=0)
+            lbl.get_style_context().add_class("field-label")
+            _local_box.add(lbl)
+
         # 自動偵測路徑與 GPU 裝置
         try:
             import sys as _sys
@@ -131,7 +153,7 @@ class SetupDialogGTK:
         _chatllm_path = [self._config.get("local_chatllm_dir", "") or _det_chatllm]
 
         # 偵測到的裝置資訊欄
-        _add_label("偵測到的裝置")
+        _add_local_label("偵測到的裝置")
         _dev_info_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         _cpu_info_lbl = Gtk.Label(label="✅ CPU（可用）", xalign=0)
         _dev_info_box.add(_cpu_info_lbl)
@@ -144,10 +166,10 @@ class SetupDialogGTK:
         if not _gpu_devices:
             _dev_info_box.add(
                 Gtk.Label(label="ℹ 未偵測到獨立 GPU，僅 CPU 推理可用", xalign=0))
-        body.add(_dev_info_box)
+        _local_box.add(_dev_info_box)
 
         # 推理方式選擇
-        _add_label("推理方式")
+        _add_local_label("推理方式")
         _saved_dev_id  = int(self._config.get("local_device_id", 0))
         _dev_radio_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
         rb_cpu = Gtk.RadioButton.new_with_label(None, "🖥 CPU")
@@ -160,29 +182,24 @@ class SetupDialogGTK:
             _dev_radio_box.pack_start(rb_g, False, False, 0)
             _gpu_rbs.append(rb_g)
         # 預設：有 GPU 且 saved_dev_id > 0 → 選 GPU；否則 CPU
-        _gpu_activated = False
         for rb in _gpu_rbs:
             if rb._gpu_id == _saved_dev_id:
                 rb.set_active(True)
-                _gpu_activated = True
                 break
-        if not _gpu_activated and _gpu_rbs and _saved_dev_id == 0:
-            # 上次選 CPU，維持 rb_cpu active（預設）
-            pass
-        body.add(_dev_radio_box)
+        _local_box.add(_dev_radio_box)
 
         # 模型狀態 + 下載按鈕
-        _add_label("模型（qwen3-asr-1.7b.bin）")
+        _add_local_label("模型（qwen3-asr-1.7b.bin）")
         _model_row = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
         _model_status_lbl = Gtk.Label(xalign=0)
         _model_status_lbl.set_hexpand(True)
         _dl_btn = Gtk.Button(label="⬇ 下載（~2.3 GB）")
         _model_row.pack_start(_model_status_lbl, True, True, 0)
         _model_row.pack_start(_dl_btn, False, False, 0)
-        body.add(_model_row)
+        _local_box.add(_model_row)
         _dl_prog_lbl = Gtk.Label(label="", xalign=0)
         _dl_prog_lbl.get_style_context().add_class("field-label")
-        body.add(_dl_prog_lbl)
+        _local_box.add(_dl_prog_lbl)
 
         def _refresh_model_status():
             if _model_path[0]:
@@ -227,7 +244,7 @@ class SetupDialogGTK:
         _dl_btn.connect("clicked", _on_dl)
 
         # chatllm 執行環境狀態
-        _add_label("chatllm 執行環境")
+        _add_local_label("chatllm 執行環境")
         _chatllm_lbl = Gtk.Label(xalign=0)
         _chatllm_lbl.set_line_wrap(True)
         if _chatllm_path[0]:
@@ -238,9 +255,52 @@ class SetupDialogGTK:
             _chatllm_lbl.set_markup(
                 f'<span color="orange">⚠ 未找到 chatllm 執行環境\n'
                 f'請從 chatllm.cpp 編譯後放至：{_default_dir}</span>')
-        body.add(_chatllm_lbl)
+        _local_box.add(_chatllm_lbl)
 
-        # 音訊來源：系統音訊 / 麥克風 切換
+        # ── 外部伺服器區 ─────────────────────────────────────────────────
+        _server_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        body.add(_server_box)
+
+        def _add_server_label(text):
+            lbl = Gtk.Label(label=text, xalign=0)
+            lbl.get_style_context().add_class("field-label")
+            _server_box.add(lbl)
+
+        _add_server_label("QwenASR 伺服器 URL")
+        _server_url_entry = Gtk.Entry()
+        _server_url_entry.set_text(
+            self._config.get("asr_server", "http://localhost:8765")
+            if _saved_mode == "remote"
+            else "http://localhost:8765"
+        )
+        _server_url_entry.set_placeholder_text("http://localhost:8765")
+        _server_url_entry.set_activates_default(True)
+        _server_box.add(_server_url_entry)
+
+        _server_note = Gtk.Label(xalign=0)
+        _server_note.set_markup(
+            '<span font_size="small" alpha="70%">'
+            '先在 QwenASRMiniTool 目錄執行：\n'
+            'python server.py --model GPUModel/qwen3-asr-1.7b.bin --chatllm-dir chatllm --gpu'
+            '</span>'
+        )
+        _server_note.set_line_wrap(True)
+        _server_box.add(_server_note)
+
+        # ── 模式切換邏輯 ─────────────────────────────────────────────────
+        def _on_mode_toggle(_btn):
+            if _rb_local.get_active():
+                _local_box.show_all()
+                _server_box.hide()
+                _refresh_model_status()  # 重新計算下載按鈕可見性
+            else:
+                _local_box.hide()
+                _server_box.show_all()
+
+        _rb_local.connect("toggled", _on_mode_toggle)
+        _rb_server.connect("toggled", _on_mode_toggle)
+
+        # ── 音訊來源：系統音訊 / 麥克風 切換 ────────────────────────────
         _add_label("音訊來源")
         _saved_source = self._config.get("source", "monitor")
         source_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
@@ -291,7 +351,6 @@ class SetupDialogGTK:
         _on_source_toggle(None)  # 初始化顯示
 
         # 翻譯方向
-        # wrap_width=3 → GtkGrid 三欄模式，避免 GtkTreeView 置中造成頂部空白
         _add_label("翻譯方向")
         _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
         dir_box = Gtk.Box(spacing=8, orientation=Gtk.Orientation.HORIZONTAL)
@@ -451,46 +510,73 @@ class SetupDialogGTK:
         body.add(warn_label)
 
         win.show_all()
-        _on_source_toggle(None)  # show_all 後重設裝置顯示
-        _refresh_model_status()  # show_all 後更新下載按鈕可見性
+        _on_source_toggle(None)   # show_all 後重設裝置顯示
+        _on_mode_toggle(None)     # show_all 後依模式顯示/隱藏對應區塊
+        _refresh_model_status()   # show_all 後更新下載按鈕可見性
 
         while True:
             response = win.run()
             if response != Gtk.ResponseType.OK:
                 break
-            # 模型與 chatllm 必須存在才能啟動
-            if not _model_path[0]:
-                warn_label.set_markup('<span color="red">⚠ 請先下載模型檔案</span>')
-                continue
-            if not _chatllm_path[0]:
-                warn_label.set_markup('<span color="red">⚠ 未找到 chatllm 執行環境，請手動安裝</span>')
-                continue
+
             _is_monitor = rb_monitor.get_active()
             _src_lbl = src_combo.get_active_text() or "en (English)"
             _tgt_lbl = tgt_combo.get_active_text() or "zh (中文)"
-            # 取得選中的裝置 ID（CPU = 0，GPU = gpu_id）
-            _local_dev_id = 0
-            for rb in _gpu_rbs:
-                if rb.get_active():
-                    _local_dev_id = rb._gpu_id
-                    break
-            self._result = {
-                "backend": "local",
-                "local_model_path": _model_path[0],
-                "local_chatllm_dir": _chatllm_path[0],
-                "local_device_id": _local_dev_id,
-                "asr_server": "http://localhost:8000",
-                "source": "monitor" if _is_monitor else "mic",
-                "monitor_device": monitor_combo.get_child().get_text().strip(),
-                "mic_device": mic_combo.get_child().get_text().strip(),
-                "direction": f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
-                "openai_api_key": key_entry.get_text().strip(),
-                "context": _context[0],
-                "en_font_size": _en_font_size[0],
-                "zh_font_size": _zh_font_size[0],
-                "show_raw": _show_raw[0],
-                "show_corrected": _show_corrected[0],
-            }
+
+            if _rb_server.get_active():
+                # ── 外部伺服器模式 ────────────────────────────────────────
+                _server_url = _server_url_entry.get_text().strip()
+                if not _server_url:
+                    warn_label.set_markup('<span color="red">⚠ 請填入 QwenASR 伺服器 URL</span>')
+                    continue
+                self._result = {
+                    "backend":           "remote",
+                    "asr_server":        _server_url,
+                    "local_model_path":  "",
+                    "local_chatllm_dir": "",
+                    "local_device_id":   0,
+                    "source":            "monitor" if _is_monitor else "mic",
+                    "monitor_device":    monitor_combo.get_child().get_text().strip(),
+                    "mic_device":        mic_combo.get_child().get_text().strip(),
+                    "direction":         f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
+                    "openai_api_key":    key_entry.get_text().strip(),
+                    "context":           _context[0],
+                    "en_font_size":      _en_font_size[0],
+                    "zh_font_size":      _zh_font_size[0],
+                    "show_raw":          _show_raw[0],
+                    "show_corrected":    _show_corrected[0],
+                }
+            else:
+                # ── 本地模型模式 ──────────────────────────────────────────
+                if not _model_path[0]:
+                    warn_label.set_markup('<span color="red">⚠ 請先下載模型檔案</span>')
+                    continue
+                if not _chatllm_path[0]:
+                    warn_label.set_markup('<span color="red">⚠ 未找到 chatllm 執行環境，請手動安裝</span>')
+                    continue
+                # 取得選中的裝置 ID（CPU = 0，GPU = gpu_id）
+                _local_dev_id = 0
+                for rb in _gpu_rbs:
+                    if rb.get_active():
+                        _local_dev_id = rb._gpu_id
+                        break
+                self._result = {
+                    "backend":           "local",
+                    "local_model_path":  _model_path[0],
+                    "local_chatllm_dir": _chatllm_path[0],
+                    "local_device_id":   _local_dev_id,
+                    "asr_server":        "http://localhost:8765",
+                    "source":            "monitor" if _is_monitor else "mic",
+                    "monitor_device":    monitor_combo.get_child().get_text().strip(),
+                    "mic_device":        mic_combo.get_child().get_text().strip(),
+                    "direction":         f"{lang_label_to_code(_src_lbl)}→{lang_label_to_code(_tgt_lbl)}",
+                    "openai_api_key":    key_entry.get_text().strip(),
+                    "context":           _context[0],
+                    "en_font_size":      _en_font_size[0],
+                    "zh_font_size":      _zh_font_size[0],
+                    "show_raw":          _show_raw[0],
+                    "show_corrected":    _show_corrected[0],
+                }
             break
 
         if self._result:

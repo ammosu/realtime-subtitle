@@ -165,10 +165,8 @@ def main() -> None:
         AudioSource.list_devices()
         return
 
-    _is_local_backend = _settings.get("backend", "remote") == "local" if not _has_cli_config else False
-    if not args.openai_api_key and not _is_local_backend:
-        log.error("OpenAI API Key 未設定，請在設定介面填入或設定 OPENAI_API_KEY 環境變數")
-        return
+    if not args.openai_api_key:
+        log.warning("OpenAI API Key 未設定，翻譯功能將停用（僅顯示 ASR 原文）")
 
     cfg = {
         "asr_server": args.asr_server,

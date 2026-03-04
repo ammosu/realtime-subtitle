@@ -42,11 +42,24 @@ class SetupDialogTk:
             self._config.get("openai_api_key", "")
             or os.environ.get("OPENAI_API_KEY", "")
         )
-        tk.Label(root, text="OpenAI API Key（翻譯用）", anchor="w").pack(fill="x", **pad)
+        tk.Label(root, text="OpenAI API Key（翻譯用，選填）", anchor="w").pack(fill="x", **pad)
         key_var = tk.StringVar(value=_existing_key)
         tk.Entry(root, textvariable=key_var, show="*", width=48).pack(**pad)
 
-        # ── 推理裝置 ──────────────────────────────────────────────────
+        # ── 運算模式 ──────────────────────────────────────────────────────
+        tk.Label(root, text="運算模式", anchor="w").pack(fill="x", **pad)
+        _saved_mode = self._config.get("backend", "local")
+        _mode_var = tk.StringVar(value="remote" if _saved_mode == "remote" else "local")
+        mode_frame = tk.Frame(root)
+        mode_frame.pack(fill="x", **pad)
+        tk.Radiobutton(mode_frame, text="🖥 本地模型",
+                       variable=_mode_var, value="local").pack(side="left")
+        tk.Radiobutton(mode_frame, text="🌐 外部伺服器（QwenASR）",
+                       variable=_mode_var, value="remote").pack(side="left", padx=(8, 0))
+
+        # ── 本地模型區 ─────────────────────────────────────────────────────
+        _local_frame = tk.Frame(root)
+
         # 自動偵測路徑與 GPU 裝置
         try:
             import sys as _sys
@@ -71,9 +84,11 @@ class SetupDialogTk:
         _model_path   = [self._config.get("local_model_path",  "") or _det_model]
         _chatllm_path = [self._config.get("local_chatllm_dir", "") or _det_chatllm]
 
+        lpad = {"padx": 12, "pady": 4}
+
         # 偵測到的裝置資訊
-        tk.Label(root, text="偵測到的裝置", anchor="w").pack(fill="x", **pad)
-        _dev_info_frame = tk.Frame(root)
+        tk.Label(_local_frame, text="偵測到的裝置", anchor="w").pack(fill="x", **lpad)
+        _dev_info_frame = tk.Frame(_local_frame)
         _dev_info_frame.pack(fill="x", padx=24, pady=(0, 4))
         tk.Label(_dev_info_frame, text="✅ CPU（可用）", anchor="w").pack(fill="x")
         if _gpu_devices:
@@ -89,11 +104,11 @@ class SetupDialogTk:
                      anchor="w", fg="gray").pack(fill="x")
 
         # 推理方式選擇
-        tk.Label(root, text="推理方式", anchor="w").pack(fill="x", **pad)
+        tk.Label(_local_frame, text="推理方式", anchor="w").pack(fill="x", **lpad)
         _saved_dev_id = int(self._config.get("local_device_id", 0))
         _device_var   = tk.StringVar(value="cpu")   # "cpu" | "gpu:<id>"
-        _dev_radio_frame = tk.Frame(root)
-        _dev_radio_frame.pack(fill="x", **pad)
+        _dev_radio_frame = tk.Frame(_local_frame)
+        _dev_radio_frame.pack(fill="x", **lpad)
         tk.Radiobutton(_dev_radio_frame, text="🖥 CPU",
                        variable=_device_var, value="cpu").pack(side="left")
         _gpu_id_map: dict[str, int] = {}   # value → gpu_id
@@ -107,13 +122,13 @@ class SetupDialogTk:
                 _device_var.set(_val)
 
         # 模型狀態 + 下載
-        tk.Label(root, text="模型（qwen3-asr-1.7b.bin）", anchor="w").pack(fill="x", **pad)
+        tk.Label(_local_frame, text="模型（qwen3-asr-1.7b.bin）", anchor="w").pack(fill="x", **lpad)
         _model_status_var = tk.StringVar()
         _dl_msg_var = tk.StringVar()
-        _model_status_lbl = tk.Label(root, textvariable=_model_status_var, anchor="w")
+        _model_status_lbl = tk.Label(_local_frame, textvariable=_model_status_var, anchor="w")
         _model_status_lbl.pack(fill="x", padx=24)
-        _dl_btn_tk = tk.Button(root, text="⬇ 下載（~2.3 GB）")
-        tk.Label(root, textvariable=_dl_msg_var, anchor="w", fg="gray").pack(fill="x", padx=24)
+        _dl_btn_tk = tk.Button(_local_frame, text="⬇ 下載（~2.3 GB）")
+        tk.Label(_local_frame, textvariable=_dl_msg_var, anchor="w", fg="gray").pack(fill="x", padx=24)
 
         def _refresh_model_status_tk():
             if _model_path[0]:
@@ -156,7 +171,7 @@ class SetupDialogTk:
         _refresh_model_status_tk()
 
         # chatllm 執行環境狀態
-        tk.Label(root, text="chatllm 執行環境", anchor="w").pack(fill="x", **pad)
+        tk.Label(_local_frame, text="chatllm 執行環境", anchor="w").pack(fill="x", **lpad)
         if _chatllm_path[0]:
             _chatllm_txt = f"✅ 已找到：{_chatllm_path[0]}"
             _chatllm_fg  = "green"
@@ -164,13 +179,55 @@ class SetupDialogTk:
             _default_dir = str(_DCD) if _DCD else "~/.local/share/realtime-subtitle/chatllm/"
             _chatllm_txt = f"⚠ 未找到 chatllm 執行環境\n請從 chatllm.cpp 編譯後放至：{_default_dir}"
             _chatllm_fg  = "orange"
-        tk.Label(root, text=_chatllm_txt, anchor="w", fg=_chatllm_fg,
+        tk.Label(_local_frame, text=_chatllm_txt, anchor="w", fg=_chatllm_fg,
                  justify="left").pack(fill="x", padx=24, pady=(0, 4))
 
+        # ── 外部伺服器區 ───────────────────────────────────────────────────
+        _server_frame = tk.Frame(root)
+
+        _saved_server_url = (
+            self._config.get("asr_server", "http://localhost:8765")
+            if _saved_mode == "remote"
+            else "http://localhost:8765"
+        )
+        tk.Label(_server_frame, text="QwenASR 伺服器 URL", anchor="w").pack(fill="x", **lpad)
+        _server_url_var = tk.StringVar(value=_saved_server_url)
+        tk.Entry(_server_frame, textvariable=_server_url_var, width=48).pack(**lpad)
+        tk.Label(
+            _server_frame,
+            text=(
+                "先在 QwenASRMiniTool 目錄執行：\n"
+                "python server.py --model GPUModel/qwen3-asr-1.7b.bin --chatllm-dir chatllm --gpu"
+            ),
+            anchor="w", fg="gray", justify="left",
+        ).pack(fill="x", padx=24, pady=(0, 4))
+
+        # ── 模式切換邏輯 ────────────────────────────────────────────────────
+        def _on_mode_change(*_):
+            if _mode_var.get() == "local":
+                _server_frame.pack_forget()
+                _local_frame.pack(fill="x", before=_audio_anchor)
+            else:
+                _local_frame.pack_forget()
+                _server_frame.pack(fill="x", before=_audio_anchor)
+
+        # 音訊來源區（作為 local/server 區塊的錨點）
+        _audio_anchor = tk.Frame(root)
+        _audio_anchor.pack(fill="x")
+
+        _mode_var.trace_add("write", _on_mode_change)
+
+        # 初始顯示
+        if _saved_mode == "remote":
+            _server_frame.pack(fill="x", before=_audio_anchor)
+        else:
+            _local_frame.pack(fill="x", before=_audio_anchor)
+
+        # ── 音訊來源 ──────────────────────────────────────────────────────
         _saved_source = self._config.get("source", "monitor")
         source_var = tk.StringVar(value=_saved_source)
-        tk.Label(root, text="音訊來源", anchor="w").pack(fill="x", **pad)
-        source_frame = tk.Frame(root)
+        tk.Label(_audio_anchor, text="音訊來源", anchor="w").pack(fill="x", **pad)
+        source_frame = tk.Frame(_audio_anchor)
         source_frame.pack(fill="x", **pad)
         tk.Radiobutton(source_frame, text="🔊 系統音訊", variable=source_var,
                        value="monitor").pack(side="left")
@@ -187,7 +244,7 @@ class SetupDialogTk:
         _mic_init = _saved_mic if _saved_mic in mic_devices else (mic_devices[0] if mic_devices else _saved_mic)
         mic_device_var = tk.StringVar(value=_mic_init)
 
-        device_frame = tk.Frame(root)
+        device_frame = tk.Frame(_audio_anchor)
         device_frame.pack(fill="x", **pad)
         if monitor_devices:
             monitor_widget = tk.OptionMenu(device_frame, monitor_device_var, *monitor_devices)
@@ -285,34 +342,63 @@ class SetupDialogTk:
         btn_frame.pack(pady=12)
 
         def on_ok():
-            if not _model_path[0]:
-                _warn_label.configure(text="⚠ 請先下載模型檔案")
-                return
-            if not _chatllm_path[0]:
-                _warn_label.configure(text="⚠ 未找到 chatllm 執行環境，請手動安裝")
-                return
             _is_monitor = source_var.get() == "monitor"
-            _dev_val      = _device_var.get()
-            _local_dev_id = _gpu_id_map.get(_dev_val, 0)
-            self._result = {
-                "backend":           "local",
-                "local_model_path":  _model_path[0],
-                "local_chatllm_dir": _chatllm_path[0],
-                "local_device_id":   _local_dev_id,
-                "asr_server":        "http://localhost:8000",
-                "source":            "monitor" if _is_monitor else "mic",
-                "monitor_device":    monitor_device_var.get().strip(),
-                "mic_device":        mic_device_var.get().strip(),
-                "direction":         f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}",
-                "openai_api_key":    key_var.get().strip(),
-                "context":           context_var.get().strip(),
-                "en_font_size":      en_size_var.get(),
-                "zh_font_size":      zh_size_var.get(),
-                "show_raw":          show_raw_var.get(),
-                "show_corrected":    show_corrected_var.get(),
-                "_dialog_x":         root.winfo_x(),
-                "_dialog_y":         root.winfo_y(),
-            }
+            _direction  = f"{lang_label_to_code(src_var.get())}→{lang_label_to_code(tgt_var.get())}"
+
+            if _mode_var.get() == "remote":
+                # ── 外部伺服器模式 ────────────────────────────────────────
+                _server_url = _server_url_var.get().strip()
+                if not _server_url:
+                    _warn_label.configure(text="⚠ 請填入 QwenASR 伺服器 URL")
+                    return
+                self._result = {
+                    "backend":           "remote",
+                    "asr_server":        _server_url,
+                    "local_model_path":  "",
+                    "local_chatllm_dir": "",
+                    "local_device_id":   0,
+                    "source":            "monitor" if _is_monitor else "mic",
+                    "monitor_device":    monitor_device_var.get().strip(),
+                    "mic_device":        mic_device_var.get().strip(),
+                    "direction":         _direction,
+                    "openai_api_key":    key_var.get().strip(),
+                    "context":           context_var.get().strip(),
+                    "en_font_size":      en_size_var.get(),
+                    "zh_font_size":      zh_size_var.get(),
+                    "show_raw":          show_raw_var.get(),
+                    "show_corrected":    show_corrected_var.get(),
+                    "_dialog_x":         root.winfo_x(),
+                    "_dialog_y":         root.winfo_y(),
+                }
+            else:
+                # ── 本地模型模式 ──────────────────────────────────────────
+                if not _model_path[0]:
+                    _warn_label.configure(text="⚠ 請先下載模型檔案")
+                    return
+                if not _chatllm_path[0]:
+                    _warn_label.configure(text="⚠ 未找到 chatllm 執行環境，請手動安裝")
+                    return
+                _dev_val      = _device_var.get()
+                _local_dev_id = _gpu_id_map.get(_dev_val, 0)
+                self._result = {
+                    "backend":           "local",
+                    "local_model_path":  _model_path[0],
+                    "local_chatllm_dir": _chatllm_path[0],
+                    "local_device_id":   _local_dev_id,
+                    "asr_server":        "http://localhost:8765",
+                    "source":            "monitor" if _is_monitor else "mic",
+                    "monitor_device":    monitor_device_var.get().strip(),
+                    "mic_device":        mic_device_var.get().strip(),
+                    "direction":         _direction,
+                    "openai_api_key":    key_var.get().strip(),
+                    "context":           context_var.get().strip(),
+                    "en_font_size":      en_size_var.get(),
+                    "zh_font_size":      zh_size_var.get(),
+                    "show_raw":          show_raw_var.get(),
+                    "show_corrected":    show_corrected_var.get(),
+                    "_dialog_x":         root.winfo_x(),
+                    "_dialog_y":         root.winfo_y(),
+                }
             root.destroy()
 
         def on_cancel():
