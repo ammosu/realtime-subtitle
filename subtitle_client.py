@@ -219,6 +219,7 @@ def main() -> None:
         "context": args.context,
         "show_raw": _show_raw,
         "show_corrected": _show_corrected,
+        "enable_denoise": bool(_cfg_fonts.get("enable_denoise", True)),
         "backend":           cfg.get("backend", "remote"),
         "local_model_path":  cfg.get("local_model_path", ""),
         "local_chatllm_dir": cfg.get("local_chatllm_dir", ""),
@@ -270,7 +271,7 @@ def main() -> None:
         new_cfg = dict(cfg)
         for k in ("asr_server", "source", "monitor_device", "mic_device", "direction",
                   "openai_api_key", "context",
-                  "backend", "local_model_path", "local_chatllm_dir", "local_device_id"):
+                  "backend", "local_model_path", "local_chatllm_dir", "local_device_id", "enable_denoise"):
             if k in _current_config:
                 new_cfg[k] = _current_config[k]
         worker_ref[0] = _start_worker(new_cfg)

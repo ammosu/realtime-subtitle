@@ -38,7 +38,7 @@ class SubtitleOverlay:
     ZH_COLOR = "#ffffff"
     OUTLINE_COLOR = "#060606"    # 近黑描邊
     SUBTITLE_BG    = "#c0c0c0"   # 字幕底板：淺灰色（非黑，不會被 transparentcolor 穿透）
-    SUBTITLE_ALPHA = 0.82        # 視窗整體透明度（讓底板呈半透明效果）
+    SUBTITLE_ALPHA = 1.0         # 視窗不透明；背景穿透由 -transparentcolor 處理，文字保持清晰
     _FONT_FAMILY = "Noto Sans TC SemiBold"
     DISCLAIMER_TEXT = "安富財經科技 ｜ AI 即時辨識，內容僅供參考"
     DISCLAIMER_COLOR = "#606060"
@@ -466,10 +466,10 @@ class SubtitleOverlay:
                         self._canvas.create_text(
                             ex + ox, cur_y + oy, text=original,
                             fill=self.OUTLINE_COLOR, font=self.EN_FONT,
-                            anchor="nw", width=wrap_w, tags="text")
+                            anchor="nw", width=wrap_w, tags=("text", "subtitle_content"))
                 item = self._canvas.create_text(
                     ex, cur_y, text=original, fill=en_color,
-                    font=self.EN_FONT, anchor="nw", width=wrap_w, tags="text")
+                    font=self.EN_FONT, anchor="nw", width=wrap_w, tags=("text", "subtitle_content"))
                 bbox = self._canvas.bbox(item)
                 cur_y = (bbox[3] if bbox else cur_y + 20) + 4
 
@@ -480,10 +480,10 @@ class SubtitleOverlay:
                         self._canvas.create_text(
                             ex + ox, cur_y + oy, text=translated,
                             fill=self.OUTLINE_COLOR, font=self.ZH_FONT,
-                            anchor="nw", width=wrap_w, tags="text")
+                            anchor="nw", width=wrap_w, tags=("text", "subtitle_content"))
                 item = self._canvas.create_text(
                     ex, cur_y, text=translated, fill=zh_color,
-                    font=self.ZH_FONT, anchor="nw", width=wrap_w, tags="text")
+                    font=self.ZH_FONT, anchor="nw", width=wrap_w, tags=("text", "subtitle_content"))
                 bbox = self._canvas.bbox(item)
                 cur_y = (bbox[3] if bbox else cur_y + 30) + 14
 
@@ -505,18 +505,21 @@ class SubtitleOverlay:
         if off == 0 and self._current_raw:
             _draw_slot(self._current_raw, "", is_raw=True)
 
-        # ── Background pill behind all visible subtitle text ─────────────
-        has_content = (idx_a >= 0 or idx_b >= 0 or bool(self._current_raw))
-        if has_content:
-            all_bbox = self._canvas.bbox("text")
-            if all_bbox:
-                pad = 10
-                bg = self._canvas.create_rectangle(
-                    max(0, all_bbox[0] - pad), max(0, all_bbox[1] - pad),
-                    min(w, all_bbox[2] + pad), min(h, all_bbox[3] + pad),
-                    fill=self.SUBTITLE_BG, outline="", tags="text",
-                )
-                self._canvas.tag_lower(bg)
+        # ── 底部對齊：將字幕內容往下移，最新一行貼齊視窗底部 ────────────
+        # 舊字幕若超出視窗上緣會被自然裁切，最新內容永遠完整顯示
+        BOTTOM_MARGIN = 28   # 為免責聲明留空間
+        content_bbox = self._canvas.bbox("subtitle_content")
+        if content_bbox:
+            shift = (h - BOTTOM_MARGIN) - content_bbox[3]
+            if shift != 0:
+                self._canvas.move("subtitle_content", 0, shift)
+
+        # ── Background: always fill full canvas ───────────────────────────
+        bg = self._canvas.create_rectangle(
+            0, 0, w, h,
+            fill=self.SUBTITLE_BG, outline="", tags="text",
+        )
+        self._canvas.tag_lower(bg)
 
         # ── Scroll hint (shown when viewing history) ──────────────────────
         if off > 0:

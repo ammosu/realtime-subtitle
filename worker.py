@@ -116,14 +116,19 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     _vad_model_path = _base_dir / "silero_vad_v6.onnx"
     vad_sess = ort.InferenceSession(str(_vad_model_path))
 
-    # 載入 DTLN 降噪模型（可選，若模型檔不存在則跳過）
+    # 載入 DTLN 降噪模型（可選：需模型檔存在且設定開啟）
     _dtln = None
-    _dtln_m1 = _base_dir / "dtln_model_1.onnx"
-    _dtln_m2 = _base_dir / "dtln_model_2.onnx"
-    if _dtln_m1.exists() and _dtln_m2.exists():
-        from denoise import DTLNDenoiser
-        _dtln = DTLNDenoiser(str(_dtln_m1), str(_dtln_m2))
-        print("[Worker] DTLN 降噪模型已載入", flush=True)
+    if cfg.get("enable_denoise", True):
+        _dtln_m1 = _base_dir / "dtln_model_1.onnx"
+        _dtln_m2 = _base_dir / "dtln_model_2.onnx"
+        if _dtln_m1.exists() and _dtln_m2.exists():
+            from denoise import DTLNDenoiser
+            _dtln = DTLNDenoiser(str(_dtln_m1), str(_dtln_m2))
+            print("[Worker] DTLN 降噪模型已載入", flush=True)
+        else:
+            print("[Worker] DTLN 模型檔不存在，跳過降噪", flush=True)
+    else:
+        print("[Worker] 降噪已停用", flush=True)
 
     _vad_q: queue.Queue = queue.Queue()
     # _speech_q 傳送 streaming 事件 tuple：

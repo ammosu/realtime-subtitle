@@ -111,7 +111,8 @@ class _AdvancedDialog(wx.Dialog):
     """進階設定彈出視窗：字體大小、提示詞、顯示選項。"""
 
     def __init__(self, parent, en_size: int, zh_size: int,
-                 context: str, show_raw: bool, show_corrected: bool):
+                 context: str, show_raw: bool, show_corrected: bool,
+                 enable_denoise: bool = True):
         super().__init__(parent, title="進階設定",
                          style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.result = None
@@ -124,8 +125,20 @@ class _AdvancedDialog(wx.Dialog):
         self._context        = context
         self._show_raw       = show_raw
         self._show_corrected = show_corrected
+        self._enable_denoise = enable_denoise
+
+        # 偵測 DTLN 模型檔是否存在
+        import sys as _sys
+        from pathlib import Path as _Path
+        _base = (_Path(_sys.executable).parent if getattr(_sys, "frozen", False)
+                 else _Path(__file__).parent.parent)
+        self._dtln_available = (
+            (_base / "dtln_model_1.onnx").exists() and
+            (_base / "dtln_model_2.onnx").exists()
+        )
 
         self._build()
+        self._update_preview()
         self.SetSize(self.FromDIP(wx.Size(440, -1)))
         self.Layout()
         self.Fit()
@@ -165,6 +178,17 @@ class _AdvancedDialog(wx.Dialog):
 
         outer.AddSpacer(self.FromDIP(10))
 
+        # Noise reduction
+        outer.Add(_dark(wx.StaticText(self, label="降噪"), fg=_SUBTEXT),
+                  0, wx.LEFT | wx.RIGHT, pad)
+        _denoise_label = ("啟用 DTLN 降噪" if self._dtln_available
+                          else "啟用 DTLN 降噪（模型檔未下載，無效）")
+        self._chk_denoise = _dark(wx.CheckBox(self, label=_denoise_label), fg=_TEXT)
+        self._chk_denoise.SetValue(self._enable_denoise)
+        outer.Add(self._chk_denoise, 0, wx.LEFT | wx.RIGHT, pad)
+
+        outer.AddSpacer(self.FromDIP(10))
+
         # Font size sliders (no wx.SL_LABELS — its text is black and invisible on dark bg)
         for label_text, attr_name, lo, hi in [
             ("辨識字體大小", "_sl_en", 10, 30),
@@ -184,12 +208,32 @@ class _AdvancedDialog(wx.Dialog):
                                           size=self.FromDIP(wx.Size(30, -1))),
                             fg=_TEXT)
             sl.Bind(wx.EVT_SLIDER,
-                    lambda evt, _s=sl, _v=val_lbl: (_v.SetLabel(str(_s.GetValue())),
-                                                     evt.Skip()))
+                    lambda evt, _s=sl, _v=val_lbl: (
+                        _v.SetLabel(str(_s.GetValue())),
+                        self._update_preview(),
+                        evt.Skip()))
             row.Add(sl, 1, wx.EXPAND | wx.LEFT, self.FromDIP(8))
             row.Add(val_lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, self.FromDIP(6))
             outer.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
             outer.AddSpacer(self.FromDIP(6))
+
+        outer.AddSpacer(self.FromDIP(8))
+
+        # ── 字體預覽 ─────────────────────────────────────────────────────────
+        outer.Add(_dark(wx.StaticText(self, label="預覽"), fg=_SUBTEXT),
+                  0, wx.LEFT | wx.RIGHT, pad)
+        outer.AddSpacer(self.FromDIP(4))
+        _prev_panel = wx.Panel(self)
+        _prev_panel.SetBackgroundColour(wx.Colour(0xc0, 0xc0, 0xc0))
+        _prev_box = wx.BoxSizer(wx.VERTICAL)
+        self._prev_en = wx.StaticText(_prev_panel, label="Real-time Subtitle — ASR 辨識原文")
+        self._prev_en.SetForegroundColour(wx.Colour(0xe0, 0xe0, 0xe0))
+        self._prev_zh = wx.StaticText(_prev_panel, label="即時字幕翻譯文字預覽")
+        self._prev_zh.SetForegroundColour(wx.Colour(0xff, 0xff, 0xff))
+        _prev_box.Add(self._prev_en, 0, wx.ALL, self.FromDIP(8))
+        _prev_box.Add(self._prev_zh, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, self.FromDIP(8))
+        _prev_panel.SetSizer(_prev_box)
+        outer.Add(_prev_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
 
         outer.AddSpacer(self.FromDIP(8))
 
@@ -207,6 +251,15 @@ class _AdvancedDialog(wx.Dialog):
         ok_btn.Bind(wx.EVT_BUTTON, self._on_ok)
         self.Bind(wx.EVT_CHAR_HOOK, self._on_key)
 
+    def _update_preview(self):
+        f_en = wx.Font(wx.FontInfo(self._sl_en.GetValue()).FaceName(_UI_FONT_FACE))
+        f_zh = wx.Font(wx.FontInfo(self._sl_zh.GetValue()).FaceName(_UI_FONT_FACE))
+        self._prev_en.SetFont(f_en)
+        self._prev_zh.SetFont(f_zh)
+        self._prev_en.GetParent().Layout()
+        self.Layout()
+        self.Fit()
+
     def _on_key(self, event):
         if event.GetKeyCode() == wx.WXK_RETURN:
             self._on_ok(None)
@@ -221,6 +274,7 @@ class _AdvancedDialog(wx.Dialog):
             "context":        self._ctx_entry.GetValue().strip(),
             "show_raw":       self._chk_raw.GetValue(),
             "show_corrected": self._chk_corrected.GetValue(),
+            "enable_denoise": self._chk_denoise.GetValue(),
         }
         self.EndModal(wx.ID_OK)
 
@@ -239,6 +293,7 @@ class _SetupWxDlg(wx.Dialog):
         self._context        = config.get("context", "")
         self._show_raw       = bool(config.get("show_raw", False))
         self._show_corrected = bool(config.get("show_corrected", True))
+        self._enable_denoise = bool(config.get("enable_denoise", True))
 
         # ── 本地 ASR 路徑偵測 ──────────────────────────────────────────
         try:
@@ -323,7 +378,7 @@ class _SetupWxDlg(wx.Dialog):
             return _dark(wx.StaticText(body, label=text), fg=_SUBTEXT)
 
         # OpenAI API Key（翻譯用，選填）
-        b.Add(_lbl("OpenAI API Key（翻譯用）"), 0, wx.BOTTOM, self.FromDIP(4))
+        b.Add(_lbl("OpenAI API Key（翻譯用，選填）"), 0, wx.BOTTOM, self.FromDIP(4))
         _existing_key = (
             self._config.get("openai_api_key", "")
             or os.environ.get("OPENAI_API_KEY", "")
@@ -331,34 +386,59 @@ class _SetupWxDlg(wx.Dialog):
         _key_wrap, self._key_entry = _make_entry(body, _existing_key, wx.TE_PASSWORD)
         b.Add(_key_wrap, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(14))
 
-        # ── 偵測到的裝置 ─────────────────────────────────────────────────────
-        b.Add(_lbl("偵測到的裝置"), 0, wx.BOTTOM, self.FromDIP(4))
-        b.Add(_dark(wx.StaticText(body, label="✅ CPU（可用）"), fg=_TEXT),
-              0, wx.BOTTOM, self.FromDIP(2))
+        # ── 運算模式 ──────────────────────────────────────────────────────────
+        b.Add(_lbl("運算模式"), 0, wx.BOTTOM, self.FromDIP(4))
+        _saved_mode = self._config.get("backend", "local")
+        mode_row = wx.BoxSizer(wx.HORIZONTAL)
+        self._rb_local_mode = _dark(
+            wx.RadioButton(body, label="🖥 本地模型", style=wx.RB_GROUP), fg=_TEXT)
+        self._rb_server_mode = _dark(
+            wx.RadioButton(body, label="🌐 外部伺服器（QwenASR）"), fg=_TEXT)
+        self._rb_local_mode.SetValue(_saved_mode != "remote")
+        self._rb_server_mode.SetValue(_saved_mode == "remote")
+        mode_row.Add(self._rb_local_mode, 0, wx.RIGHT, self.FromDIP(16))
+        mode_row.Add(self._rb_server_mode, 0)
+        b.Add(mode_row, 0, wx.BOTTOM, self.FromDIP(10))
+
+        # ── 本地模型 panel ────────────────────────────────────────────────────
+        self._local_panel = wx.Panel(body)
+        self._local_panel.SetBackgroundColour(_BG)
+        lp = wx.BoxSizer(wx.VERTICAL)
+
+        def _lbl_l(text):
+            return _dark(wx.StaticText(self._local_panel, label=text), fg=_SUBTEXT)
+
+        # 偵測到的裝置
+        lp.Add(_lbl_l("偵測到的裝置"), 0, wx.BOTTOM, self.FromDIP(4))
+        lp.Add(_dark(wx.StaticText(self._local_panel, label="✅ CPU（可用）"), fg=_TEXT),
+               0, wx.BOTTOM, self.FromDIP(2))
         if self._gpu_devices:
             for _gd in self._gpu_devices:
                 _vram_gb  = _gd.get("vram_free", 0) / 1_073_741_824
                 _vram_str = f"（可用 VRAM {_vram_gb:.1f} GB）" if _vram_gb > 0.1 else ""
-                b.Add(_dark(wx.StaticText(
-                    body, label=f"✅ GPU：{_gd['name']}{_vram_str}（Vulkan）"),
+                lp.Add(_dark(wx.StaticText(
+                    self._local_panel,
+                    label=f"✅ GPU：{_gd['name']}{_vram_str}（Vulkan）"),
                     fg=_TEXT), 0, wx.BOTTOM, self.FromDIP(2))
         else:
-            b.Add(_dark(wx.StaticText(
-                body, label="ℹ 未偵測到獨立 GPU，僅 CPU 推理可用"),
+            lp.Add(_dark(wx.StaticText(
+                self._local_panel,
+                label="ℹ 未偵測到獨立 GPU，僅 CPU 推理可用"),
                 fg=_SUBTEXT), 0, wx.BOTTOM, self.FromDIP(2))
 
-        # ── 推理方式 ─────────────────────────────────────────────────────────
-        b.Add(_lbl("推理方式"), 0, wx.TOP | wx.BOTTOM, self.FromDIP(4))
+        # 推理方式
+        lp.Add(_lbl_l("推理方式"), 0, wx.TOP | wx.BOTTOM, self.FromDIP(4))
         dev_radio_row = wx.BoxSizer(wx.HORIZONTAL)
         self._rb_cpu = _dark(
-            wx.RadioButton(body, label="🖥 CPU", style=wx.RB_GROUP), fg=_TEXT)
+            wx.RadioButton(self._local_panel, label="🖥 CPU", style=wx.RB_GROUP),
+            fg=_TEXT)
         dev_radio_row.Add(self._rb_cpu, 0, wx.RIGHT, self.FromDIP(16))
         self._gpu_rbs: list[tuple[wx.RadioButton, int]] = []
         _saved_dev_id = int(self._config.get("local_device_id", 0))
         _gpu_activated = False
         for _gd in self._gpu_devices:
             rb = _dark(wx.RadioButton(
-                body, label=f"⚡ GPU ({_gd['name']}) [Vulkan]"), fg=_TEXT)
+                self._local_panel, label=f"⚡ GPU ({_gd['name']}) [Vulkan]"), fg=_TEXT)
             rb._gpu_id = _gd["id"]
             dev_radio_row.Add(rb, 0, wx.RIGHT, self.FromDIP(8))
             self._gpu_rbs.append((rb, _gd["id"]))
@@ -367,25 +447,25 @@ class _SetupWxDlg(wx.Dialog):
                 _gpu_activated = True
         if not _gpu_activated:
             self._rb_cpu.SetValue(True)
-        b.Add(dev_radio_row, 0, wx.BOTTOM, self.FromDIP(10))
+        lp.Add(dev_radio_row, 0, wx.BOTTOM, self.FromDIP(10))
 
-        # ── 模型 ─────────────────────────────────────────────────────────────
-        b.Add(_lbl("模型（qwen3-asr-1.7b.bin）"), 0, wx.BOTTOM, self.FromDIP(4))
+        # 模型
+        lp.Add(_lbl_l("模型（qwen3-asr-1.7b.bin）"), 0, wx.BOTTOM, self.FromDIP(4))
         model_row = wx.BoxSizer(wx.HORIZONTAL)
         self._model_status_lbl = _dark(
-            wx.StaticText(body, label=""), fg=_TEXT)
+            wx.StaticText(self._local_panel, label=""), fg=_TEXT)
         self._model_status_lbl.SetMinSize(self.FromDIP(wx.Size(200, -1)))
-        self._dl_btn = _btn(body, "⬇ 下載（~2.3 GB）", (-1, 28))
+        self._dl_btn = _btn(self._local_panel, "⬇ 下載（~2.3 GB）", (-1, 28))
         self._dl_btn.Bind(wx.EVT_BUTTON, self._on_download)
         model_row.Add(self._model_status_lbl, 1, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT,
                       self.FromDIP(8))
         model_row.Add(self._dl_btn, 0, wx.ALIGN_CENTER_VERTICAL)
-        b.Add(model_row, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(4))
-        self._dl_prog_lbl = _dark(wx.StaticText(body, label=""), fg=_SUBTEXT)
-        b.Add(self._dl_prog_lbl, 0, wx.BOTTOM, self.FromDIP(10))
+        lp.Add(model_row, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(4))
+        self._dl_prog_lbl = _dark(wx.StaticText(self._local_panel, label=""), fg=_SUBTEXT)
+        lp.Add(self._dl_prog_lbl, 0, wx.BOTTOM, self.FromDIP(10))
 
-        # ── chatllm 執行環境 ──────────────────────────────────────────────────
-        b.Add(_lbl("chatllm 執行環境"), 0, wx.BOTTOM, self.FromDIP(4))
+        # chatllm 執行環境
+        lp.Add(_lbl_l("chatllm 執行環境"), 0, wx.BOTTOM, self.FromDIP(4))
         if self._chatllm_path[0]:
             _chatllm_text = f"✅ 已找到：{self._chatllm_path[0]}"
             _chatllm_fg   = _TEXT
@@ -395,9 +475,36 @@ class _SetupWxDlg(wx.Dialog):
             _chatllm_text = (f"⚠ 未找到 chatllm 執行環境\n"
                              f"請從 chatllm.cpp 編譯後放至：{_default_dir}")
             _chatllm_fg   = wx.Colour(251, 146, 60)   # orange
-        _chatllm_lbl = _dark(wx.StaticText(body, label=_chatllm_text), fg=_chatllm_fg)
+        _chatllm_lbl = _dark(
+            wx.StaticText(self._local_panel, label=_chatllm_text), fg=_chatllm_fg)
         _chatllm_lbl.Wrap(self.FromDIP(420))
-        b.Add(_chatllm_lbl, 0, wx.BOTTOM, self.FromDIP(14))
+        lp.Add(_chatllm_lbl, 0, wx.BOTTOM, self.FromDIP(14))
+
+        self._local_panel.SetSizer(lp)
+        b.Add(self._local_panel, 0, wx.EXPAND)
+
+        # ── 外部伺服器 panel ──────────────────────────────────────────────────
+        self._server_panel = wx.Panel(body)
+        self._server_panel.SetBackgroundColour(_BG)
+        sp = wx.BoxSizer(wx.VERTICAL)
+
+        def _lbl_s(text):
+            return _dark(wx.StaticText(self._server_panel, label=text), fg=_SUBTEXT)
+
+        sp.Add(_lbl_s("QwenASR 伺服器 URL"), 0, wx.BOTTOM, self.FromDIP(4))
+        _server_default = (
+            self._config.get("asr_server", "http://localhost:8765")
+            if _saved_mode == "remote"
+            else "http://localhost:8765"
+        )
+        _server_wrap, self._server_url_entry = _make_entry(
+            self._server_panel, _server_default)
+        sp.Add(_server_wrap, 0, wx.EXPAND | wx.BOTTOM, self.FromDIP(6))
+
+        sp.AddSpacer(self.FromDIP(6))
+
+        self._server_panel.SetSizer(sp)
+        b.Add(self._server_panel, 0, wx.EXPAND)
 
         # ── 音訊來源 ──────────────────────────────────────────────────────────
         b.Add(_lbl("音訊來源"), 0, wx.BOTTOM, self.FromDIP(4))
@@ -505,8 +612,22 @@ class _SetupWxDlg(wx.Dialog):
                   self.FromDIP(16))
 
         self.SetSizer(outer)
+
+        # Bind mode toggle
+        self._rb_local_mode.Bind(wx.EVT_RADIOBUTTON, self._on_mode_change)
+        self._rb_server_mode.Bind(wx.EVT_RADIOBUTTON, self._on_mode_change)
+
+        # Initial state
         self._on_source_change(None)
+        self._on_mode_change(None)
         self._refresh_model_status()
+
+    def _on_mode_change(self, _event):
+        is_local = self._rb_local_mode.GetValue()
+        self._local_panel.Show(is_local)
+        self._server_panel.Show(not is_local)
+        self.Layout()
+        self.Fit()
 
     def _on_source_change(self, _event):
         is_monitor = self._rb_monitor.GetValue()
@@ -574,6 +695,7 @@ class _SetupWxDlg(wx.Dialog):
             context=self._context,
             show_raw=self._show_raw,
             show_corrected=self._show_corrected,
+            enable_denoise=self._enable_denoise,
         )
         if adv.ShowModal() == wx.ID_OK and adv.result:
             r = adv.result
@@ -582,17 +704,10 @@ class _SetupWxDlg(wx.Dialog):
             self._context        = r["context"]
             self._show_raw       = r["show_raw"]
             self._show_corrected = r["show_corrected"]
+            self._enable_denoise = r["enable_denoise"]
         adv.Destroy()
 
     def _on_ok(self, _event):
-        # 驗證：model 與 chatllm 必須存在
-        if not self._model_path[0]:
-            self._warn_lbl.SetLabel("⚠ 請先下載模型檔案")
-            return
-        if not self._chatllm_path[0]:
-            self._warn_lbl.SetLabel("⚠ 未找到 chatllm 執行環境，請手動安裝")
-            return
-
         is_monitor = self._rb_monitor.GetValue()
         mon_val = (
             self._mon_choice.GetStringSelection()
@@ -606,34 +721,67 @@ class _SetupWxDlg(wx.Dialog):
         )
         src_code = lang_label_to_code(self._src_choice.GetStringSelection())
         tgt_code = lang_label_to_code(self._tgt_choice.GetStringSelection())
-
-        # 推理裝置 ID
-        _local_dev_id = 0
-        for rb, gid in self._gpu_rbs:
-            if rb.GetValue():
-                _local_dev_id = gid
-                break
-
         x, y = self.GetPosition()
-        self.result = {
-            "backend":           "local",
-            "local_model_path":  self._model_path[0],
-            "local_chatllm_dir": self._chatllm_path[0],
-            "local_device_id":   _local_dev_id,
-            "asr_server":        "http://localhost:8000",
-            "source":            "monitor" if is_monitor else "mic",
-            "monitor_device":    mon_val,
-            "mic_device":        mic_val,
-            "direction":         f"{src_code}→{tgt_code}",
-            "openai_api_key":    self._key_entry.GetValue().strip(),
-            "context":           self._context,
-            "en_font_size":      self._en_size,
-            "zh_font_size":      self._zh_size,
-            "show_raw":          self._show_raw,
-            "show_corrected":    self._show_corrected,
-            "_dialog_x":         x,
-            "_dialog_y":         y,
-        }
+
+        if self._rb_server_mode.GetValue():
+            # ── 外部伺服器模式 ────────────────────────────────────────────
+            server_url = self._server_url_entry.GetValue().strip()
+            if not server_url:
+                self._warn_lbl.SetLabel("⚠ 請填入 QwenASR 伺服器 URL")
+                return
+            self.result = {
+                "backend":           "remote",
+                "asr_server":        server_url,
+                "local_model_path":  "",
+                "local_chatllm_dir": "",
+                "local_device_id":   0,
+                "source":            "monitor" if is_monitor else "mic",
+                "monitor_device":    mon_val,
+                "mic_device":        mic_val,
+                "direction":         f"{src_code}→{tgt_code}",
+                "openai_api_key":    self._key_entry.GetValue().strip(),
+                "context":           self._context,
+                "en_font_size":      self._en_size,
+                "zh_font_size":      self._zh_size,
+                "show_raw":          self._show_raw,
+                "show_corrected":    self._show_corrected,
+                "enable_denoise":    self._enable_denoise,
+                "_dialog_x":         x,
+                "_dialog_y":         y,
+            }
+        else:
+            # ── 本地模型模式 ──────────────────────────────────────────────
+            if not self._model_path[0]:
+                self._warn_lbl.SetLabel("⚠ 請先下載模型檔案")
+                return
+            if not self._chatllm_path[0]:
+                self._warn_lbl.SetLabel("⚠ 未找到 chatllm 執行環境，請手動安裝")
+                return
+            _local_dev_id = 0
+            for rb, gid in self._gpu_rbs:
+                if rb.GetValue():
+                    _local_dev_id = gid
+                    break
+            self.result = {
+                "backend":           "local",
+                "local_model_path":  self._model_path[0],
+                "local_chatllm_dir": self._chatllm_path[0],
+                "local_device_id":   _local_dev_id,
+                "asr_server":        "http://localhost:8765",
+                "source":            "monitor" if is_monitor else "mic",
+                "monitor_device":    mon_val,
+                "mic_device":        mic_val,
+                "direction":         f"{src_code}→{tgt_code}",
+                "openai_api_key":    self._key_entry.GetValue().strip(),
+                "context":           self._context,
+                "en_font_size":      self._en_size,
+                "zh_font_size":      self._zh_size,
+                "show_raw":          self._show_raw,
+                "show_corrected":    self._show_corrected,
+                "enable_denoise":    self._enable_denoise,
+                "_dialog_x":         x,
+                "_dialog_y":         y,
+            }
         self.EndModal(wx.ID_OK)
 
 
