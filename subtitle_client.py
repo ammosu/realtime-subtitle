@@ -283,7 +283,7 @@ def main() -> None:
         _last_translated[0] = ""
         overlay._show_raw = new_settings.get("show_raw", overlay._show_raw)
         overlay._show_corrected = new_settings.get("show_corrected", overlay._show_corrected)
-        overlay.set_text(raw="", original="", translated="")
+        overlay.reset()
         overlay.update_direction_label(current_direction[0])
         overlay.update_source_label(_current_config.get("source", "monitor"))
 

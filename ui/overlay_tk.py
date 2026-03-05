@@ -365,7 +365,10 @@ class SubtitleOverlay:
         """滾輪：scroll up = 往歷史；scroll down = 往最新。"""
         # Windows: event.delta (+120 = up, -120 = down)
         # Linux:   event.num (4 = up, 5 = down)
-        going_older = (event.delta > 0) if event.delta else (event.num == 4)
+        if sys.platform == "win32":
+            going_older = event.delta > 0
+        else:
+            going_older = event.num == 4
         if going_older:
             max_off = max(0, len(self._history) - 1)
             self._scroll_offset = min(max_off, self._scroll_offset + 1)

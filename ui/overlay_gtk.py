@@ -418,6 +418,18 @@ class SubtitleOverlayGTK:
             return False
         GLib.idle_add(_u)
 
+    def update_raw(self, raw: str) -> None:
+        """Stub: delegate to set_text for GTK overlay."""
+        self.set_text(raw=raw, original="", translated="")
+
+    def finalize(self, original: str, translated: str) -> None:
+        """Stub: delegate to set_text for GTK overlay."""
+        self.set_text(raw="", original=original, translated=translated)
+
+    def reset(self) -> None:
+        """Stub: delegate to set_text for GTK overlay."""
+        self.set_text(raw="", original="", translated="")
+
     def set_text(self, raw: str = "", original: str = "", translated: str = ""):
         if self._paused:
             return
