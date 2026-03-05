@@ -336,11 +336,7 @@ def main() -> None:
                 overlay.update_source_label(msg["source"])
             elif "raw" in msg:
                 _last_raw[0] = msg["raw"]
-                overlay.set_text(
-                    raw=_last_raw[0],
-                    original=_last_original[0],
-                    translated=_last_translated[0],
-                )
+                overlay.update_raw(_last_raw[0])
             else:
                 # "original" 出現時更新原文；"translated" 出現時更新翻譯
                 # 兩者各自獨立，互不清除
@@ -348,11 +344,7 @@ def main() -> None:
                     _last_original[0] = msg["original"]
                 if msg.get("translated"):
                     _last_translated[0] = msg["translated"]
-                overlay.set_text(
-                    raw=_last_raw[0],
-                    original=_last_original[0],
-                    translated=_last_translated[0],
-                )
+                overlay.finalize(_last_original[0], _last_translated[0])
 
     if use_gtk:
         def poll_gtk() -> bool:
