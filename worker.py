@@ -116,6 +116,15 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     _vad_model_path = _base_dir / "silero_vad_v6.onnx"
     vad_sess = ort.InferenceSession(str(_vad_model_path))
 
+    # 載入 DTLN 降噪模型（可選，若模型檔不存在則跳過）
+    _dtln = None
+    _dtln_m1 = _base_dir / "dtln_model_1.onnx"
+    _dtln_m2 = _base_dir / "dtln_model_2.onnx"
+    if _dtln_m1.exists() and _dtln_m2.exists():
+        from denoise import DTLNDenoiser
+        _dtln = DTLNDenoiser(str(_dtln_m1), str(_dtln_m2))
+        print("[Worker] DTLN 降噪模型已載入", flush=True)
+
     _vad_q: queue.Queue = queue.Queue()
     # _speech_q 傳送 streaming 事件 tuple：
     #   ("start",  audio: np.ndarray) — 語音開始（含預滾音訊）
@@ -125,7 +134,11 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
     _stop_event = threading.Event()
 
     def on_chunk(audio: np.ndarray) -> None:
-        """非阻塞：只把音訊放入 VAD 佇列。"""
+        """非阻塞：降噪後放入 VAD 佇列。"""
+        if _dtln is not None:
+            audio = _dtln.process(audio)
+            if len(audio) == 0:
+                return
         _vad_q.put(audio)
 
     def vad_loop() -> None:
@@ -269,6 +282,12 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
         prev_audio_tail = np.zeros(0, dtype=np.float32)  # 上段末尾 0.5s
         prev_raw = ""                                      # 上段完整原始 ASR
 
+        # 自適應 RMS 過濾：跳過明顯比近期主音量小的片段
+        _RMS_WINDOW   = 20    # 保留最近 N 段 RMS 歷史
+        _RMS_FRACTION = 0.30  # 低於近期最大 RMS 的 30% 則跳過
+        _RMS_MIN_SAMP = 3     # 累積至少 N 段後才開始過濾
+        _rms_history: deque = deque(maxlen=_RMS_WINDOW)
+
         print("[ASR local] thread started", flush=True)
 
         while not _stop_event.is_set():
@@ -294,6 +313,15 @@ def _worker_main_impl(text_q: multiprocessing.SimpleQueue, cmd_q: multiprocessin
 
                     audio_data = np.concatenate(buf)
                     buf = []
+
+                    # 自適應 RMS 過濾
+                    seg_rms = float(np.sqrt(np.mean(audio_data ** 2)))
+                    _rms_history.append(seg_rms)
+                    if len(_rms_history) >= _RMS_MIN_SAMP:
+                        rms_thr = max(_rms_history) * _RMS_FRACTION
+                        if seg_rms < rms_thr:
+                            print(f"[RMS] skip rms={seg_rms:.4f} thr={rms_thr:.4f}", flush=True)
+                            continue
 
                     # 保留末尾 0.5s 供下一段 overlap
                     if len(audio_data) > OVERLAP_SAMPLES:

@@ -11,3 +11,6 @@ subtitle.log
 .claude/
 .worktrees/
 .playwright-mcp/
+
+dtln_model_1.onnx
+dtln_model_2.onnx
