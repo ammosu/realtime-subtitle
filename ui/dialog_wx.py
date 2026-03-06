@@ -122,7 +122,7 @@ class _SetupWxDlg(wx.Dialog):
         self._context        = config.get("context", "")
         self._show_raw       = bool(config.get("show_raw", False))
         self._show_corrected = bool(config.get("show_corrected", True))
-        self._enable_denoise = bool(config.get("enable_denoise", True))  # wired in Task 4
+        self._enable_denoise = bool(config.get("enable_denoise", True))
 
         # ── 本地 ASR 路徑偵測 ──────────────────────────────────────────
         try:
@@ -475,7 +475,82 @@ class _SetupWxDlg(wx.Dialog):
         b.Add(_ctx_wrap, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
 
         panel.SetSizer(b)
-    def _build_tab_display(self, panel): pass      # TODO: Task 4
+    def _build_tab_display(self, panel):
+        b = wx.BoxSizer(wx.VERTICAL)
+        pad = self.FromDIP(16)
+
+        def _lbl(text):
+            return _dark(wx.StaticText(panel, label=text), fg=_SUBTEXT)
+
+        # ── Font sliders ─────────────────────────────────────────────────
+        b.Add(_lbl("字體大小"), 0, wx.LEFT | wx.RIGHT | wx.TOP, pad)
+        b.AddSpacer(self.FromDIP(6))
+
+        for label_text, attr_name, lo, hi in [
+            ("辨識字體", "_sl_en", 10, 30),
+            ("翻譯字體", "_sl_zh", 14, 40),
+        ]:
+            row = wx.BoxSizer(wx.HORIZONTAL)
+            lbl = _dark(wx.StaticText(panel, label=label_text,
+                                      size=self.FromDIP(wx.Size(70, -1))), fg=_SUBTEXT)
+            row.Add(lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+            init_val = self._en_size if attr_name == "_sl_en" else self._zh_size
+            sl = wx.Slider(panel, value=init_val, minValue=lo, maxValue=hi,
+                           style=wx.SL_HORIZONTAL, size=self.FromDIP(wx.Size(220, -1)))
+            setattr(self, attr_name, sl)
+            val_lbl = _dark(wx.StaticText(panel, label=str(init_val),
+                                          size=self.FromDIP(wx.Size(30, -1))), fg=_TEXT)
+            sl.Bind(wx.EVT_SLIDER,
+                    lambda evt, _s=sl, _v=val_lbl: (
+                        _v.SetLabel(str(_s.GetValue())),
+                        self._update_preview(),
+                        evt.Skip()))
+            row.Add(sl, 1, wx.EXPAND | wx.LEFT, self.FromDIP(8))
+            row.Add(val_lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, self.FromDIP(6))
+            b.Add(row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+            b.AddSpacer(self.FromDIP(4))
+
+        # ── Font preview ─────────────────────────────────────────────────
+        b.AddSpacer(self.FromDIP(6))
+        b.Add(_lbl("預覽"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(4))
+        _prev_panel = wx.Panel(panel)
+        _prev_panel.SetBackgroundColour(wx.Colour(0xc0, 0xc0, 0xc0))
+        _prev_box = wx.BoxSizer(wx.VERTICAL)
+        self._prev_en = wx.StaticText(_prev_panel, label="Real-time Subtitle — ASR 辨識原文")
+        self._prev_en.SetForegroundColour(wx.Colour(0xe0, 0xe0, 0xe0))
+        self._prev_zh = wx.StaticText(_prev_panel, label="即時字幕翻譯文字預覽")
+        self._prev_zh.SetForegroundColour(wx.Colour(0xff, 0xff, 0xff))
+        _prev_box.Add(self._prev_en, 0, wx.ALL, self.FromDIP(8))
+        _prev_box.Add(self._prev_zh, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, self.FromDIP(8))
+        _prev_panel.SetSizer(_prev_box)
+        b.Add(_prev_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        b.AddSpacer(self.FromDIP(14))
+        b.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(14))
+
+        # ── 顯示選項 ─────────────────────────────────────────────────────
+        b.Add(_lbl("原文顯示"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(4))
+        self._chk_corrected = _dark(
+            wx.CheckBox(panel, label="顯示校正後 ASR 原文"), fg=_TEXT)
+        self._chk_corrected.SetValue(self._show_corrected)
+        b.Add(self._chk_corrected, 0, wx.LEFT | wx.RIGHT, pad)
+        self._chk_raw = _dark(
+            wx.CheckBox(panel, label="顯示原始 ASR 辨識"), fg=_TEXT)
+        self._chk_raw.SetValue(self._show_raw)
+        b.Add(self._chk_raw, 0, wx.LEFT | wx.RIGHT | wx.TOP, self.FromDIP(4))
+
+        panel.SetSizer(b)
+        self._update_preview()
+
+    def _update_preview(self):
+        f_en = wx.Font(wx.FontInfo(self._sl_en.GetValue()).FaceName(_UI_FONT_FACE))
+        f_zh = wx.Font(wx.FontInfo(self._sl_zh.GetValue()).FaceName(_UI_FONT_FACE))
+        self._prev_en.SetFont(f_en)
+        self._prev_zh.SetFont(f_zh)
+        self._prev_en.GetParent().Layout()
 
     def _on_mode_change(self, _event):
         is_local = self._rb_local_mode.GetValue()
