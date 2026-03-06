@@ -423,7 +423,58 @@ class _SetupWxDlg(wx.Dialog):
         self._on_mode_change(None)
         self._refresh_model_status()
 
-    def _build_tab_translation(self, panel): pass  # TODO: Task 3
+    def _build_tab_translation(self, panel):
+        b = wx.BoxSizer(wx.VERTICAL)
+        pad = self.FromDIP(16)
+
+        def _lbl(text):
+            return _dark(wx.StaticText(panel, label=text), fg=_SUBTEXT)
+
+        # ── OpenAI API Key ───────────────────────────────────────────────
+        b.Add(_lbl("OpenAI API Key（翻譯用，選填）"), 0, wx.LEFT | wx.RIGHT | wx.TOP, pad)
+        b.AddSpacer(self.FromDIP(4))
+        _existing_key = (self._config.get("openai_api_key", "")
+                         or os.environ.get("OPENAI_API_KEY", ""))
+        _key_wrap, self._key_entry = _make_entry(panel, _existing_key, wx.TE_PASSWORD)
+        b.Add(_key_wrap, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        b.AddSpacer(self.FromDIP(14))
+        b.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(14))
+
+        # ── 翻譯方向 ─────────────────────────────────────────────────────
+        b.Add(_lbl("翻譯方向"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(4))
+        _src0, _tgt0 = parse_direction(self._config.get("direction", "en→zh"))
+        dir_row = wx.BoxSizer(wx.HORIZONTAL)
+        self._src_choice = _dark(
+            _DarkCombo(panel, choices=LANG_LABELS, style=wx.CB_READONLY), bg=_ENTRY, fg=_TEXT)
+        _src_lbl = lang_code_to_label(_src0)
+        self._src_choice.SetSelection(
+            LANG_LABELS.index(_src_lbl) if _src_lbl in LANG_LABELS else 0)
+        swap_btn = _btn(panel, "⇄", (40, 34))
+        swap_btn.Bind(wx.EVT_BUTTON, self._on_swap)
+        self._tgt_choice = _dark(
+            _DarkCombo(panel, choices=LANG_LABELS, style=wx.CB_READONLY), bg=_ENTRY, fg=_TEXT)
+        _tgt_lbl = lang_code_to_label(_tgt0)
+        self._tgt_choice.SetSelection(
+            LANG_LABELS.index(_tgt_lbl) if _tgt_lbl in LANG_LABELS else 1)
+        dir_row.Add(self._src_choice, 1, wx.EXPAND | wx.RIGHT, self.FromDIP(6))
+        dir_row.Add(swap_btn, 0, wx.RIGHT, self.FromDIP(6))
+        dir_row.Add(self._tgt_choice, 1, wx.EXPAND)
+        b.Add(dir_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        b.AddSpacer(self.FromDIP(14))
+        b.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(14))
+
+        # ── 辨識提示詞 ───────────────────────────────────────────────────
+        b.Add(_lbl("辨識提示詞（選填）"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(4))
+        _ctx_wrap, self._ctx_entry = _make_entry(panel, self._context)
+        b.Add(_ctx_wrap, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        panel.SetSizer(b)
     def _build_tab_display(self, panel): pass      # TODO: Task 4
 
     def _on_mode_change(self, _event):
