@@ -122,7 +122,7 @@ class _SetupWxDlg(wx.Dialog):
         self._context        = config.get("context", "")
         self._show_raw       = bool(config.get("show_raw", False))
         self._show_corrected = bool(config.get("show_corrected", True))
-        self._enable_denoise = bool(config.get("enable_denoise", True))
+        self._enable_denoise = bool(config.get("enable_denoise", True))  # wired in Task 4
 
         # ── 本地 ASR 路徑偵測 ──────────────────────────────────────────
         try:
@@ -228,9 +228,9 @@ class _SetupWxDlg(wx.Dialog):
 
         self.SetSizer(outer)
 
-    def _build_tab_asr(self, panel): pass
-    def _build_tab_translation(self, panel): pass
-    def _build_tab_display(self, panel): pass
+    def _build_tab_asr(self, panel): pass          # TODO: Task 2
+    def _build_tab_translation(self, panel): pass  # TODO: Task 3
+    def _build_tab_display(self, panel): pass      # TODO: Task 4
 
     def _on_ok(self, _event):
         # Placeholder — will be fully implemented in Task 5
