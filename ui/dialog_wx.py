@@ -614,28 +614,73 @@ class _SetupWxDlg(wx.Dialog):
         self._tgt_choice.SetSelection(si)
 
     def _on_ok(self, _event):
-        # Placeholder — will be fully implemented in Task 5
         x, y = self.GetPosition()
-        self.result = {
-            "backend":           self._config.get("backend", "local"),
-            "asr_server":        self._config.get("asr_server", "http://localhost:8765"),
-            "local_model_path":  self._config.get("local_model_path", ""),
-            "local_chatllm_dir": self._config.get("local_chatllm_dir", ""),
-            "local_device_id":   self._config.get("local_device_id", 0),
-            "source":            self._config.get("source", "monitor"),
-            "monitor_device":    self._config.get("monitor_device", ""),
-            "mic_device":        self._config.get("mic_device", ""),
-            "direction":         self._config.get("direction", "en→zh"),
-            "openai_api_key":    self._config.get("openai_api_key", ""),
-            "context":           self._context,
-            "en_font_size":      self._en_size,
-            "zh_font_size":      self._zh_size,
-            "show_raw":          self._show_raw,
-            "show_corrected":    self._show_corrected,
-            "enable_denoise":    self._enable_denoise,
-            "_dialog_x":         x,
-            "_dialog_y":         y,
-        }
+
+        is_monitor = self._rb_monitor.GetValue()
+        mon_val = (self._mon_choice.GetStringSelection() if self._mon_choice
+                   else self._mon_entry.GetValue().strip())
+        mic_val = (self._mic_choice.GetStringSelection() if self._mic_choice
+                   else self._mic_entry.GetValue().strip())
+        src_code = lang_label_to_code(self._src_choice.GetStringSelection())
+        tgt_code = lang_label_to_code(self._tgt_choice.GetStringSelection())
+
+        if self._rb_server_mode.GetValue():
+            server_url = self._server_url_entry.GetValue().strip()
+            if not server_url:
+                self._warn_lbl.SetLabel("⚠ 請填入 QwenASR 伺服器 URL")
+                return
+            self.result = {
+                "backend":           "remote",
+                "asr_server":        server_url,
+                "local_model_path":  "",
+                "local_chatllm_dir": "",
+                "local_device_id":   0,
+                "source":            "monitor" if is_monitor else "mic",
+                "monitor_device":    mon_val,
+                "mic_device":        mic_val,
+                "direction":         f"{src_code}→{tgt_code}",
+                "openai_api_key":    self._key_entry.GetValue().strip(),
+                "context":           self._ctx_entry.GetValue().strip(),
+                "en_font_size":      self._sl_en.GetValue(),
+                "zh_font_size":      self._sl_zh.GetValue(),
+                "show_raw":          self._chk_raw.GetValue(),
+                "show_corrected":    self._chk_corrected.GetValue(),
+                "enable_denoise":    self._chk_denoise.GetValue(),
+                "_dialog_x":         x,
+                "_dialog_y":         y,
+            }
+        else:
+            if not self._model_path[0]:
+                self._warn_lbl.SetLabel("⚠ 請先下載模型檔案")
+                return
+            if not self._chatllm_path[0]:
+                self._warn_lbl.SetLabel("⚠ 未找到 chatllm 執行環境，請手動安裝")
+                return
+            _local_dev_id = 0
+            for rb, gid in self._gpu_rbs:
+                if rb.GetValue():
+                    _local_dev_id = gid
+                    break
+            self.result = {
+                "backend":           "local",
+                "local_model_path":  self._model_path[0],
+                "local_chatllm_dir": self._chatllm_path[0],
+                "local_device_id":   _local_dev_id,
+                "asr_server":        "http://localhost:8765",
+                "source":            "monitor" if is_monitor else "mic",
+                "monitor_device":    mon_val,
+                "mic_device":        mic_val,
+                "direction":         f"{src_code}→{tgt_code}",
+                "openai_api_key":    self._key_entry.GetValue().strip(),
+                "context":           self._ctx_entry.GetValue().strip(),
+                "en_font_size":      self._sl_en.GetValue(),
+                "zh_font_size":      self._sl_zh.GetValue(),
+                "show_raw":          self._chk_raw.GetValue(),
+                "show_corrected":    self._chk_corrected.GetValue(),
+                "enable_denoise":    self._chk_denoise.GetValue(),
+                "_dialog_x":         x,
+                "_dialog_y":         y,
+            }
         self.EndModal(wx.ID_OK)
 
 
