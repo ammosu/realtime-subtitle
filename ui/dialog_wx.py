@@ -666,7 +666,7 @@ class _SetupWxDlg(wx.Dialog):
                 "local_model_path":  self._model_path[0],
                 "local_chatllm_dir": self._chatllm_path[0],
                 "local_device_id":   _local_dev_id,
-                "asr_server":        "http://localhost:8765",
+                "asr_server":        "http://localhost:8000",
                 "source":            "monitor" if is_monitor else "mic",
                 "monitor_device":    mon_val,
                 "mic_device":        mic_val,
