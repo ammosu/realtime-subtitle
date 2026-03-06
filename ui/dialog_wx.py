@@ -120,8 +120,8 @@ class _SetupWxDlg(wx.Dialog):
         self._en_size        = int(config.get("en_font_size", 15))
         self._zh_size        = int(config.get("zh_font_size", 24))
         self._context        = config.get("context", "")
-        self._show_raw       = bool(config.get("show_raw", False))
-        self._show_corrected = bool(config.get("show_corrected", True))
+        self._display_mode   = config.get("display_mode", "both")
+        self._bg_alpha       = int(config.get("bg_alpha", 100))
         self._enable_denoise = bool(config.get("enable_denoise", True))
 
         # ── 本地 ASR 路徑偵測 ──────────────────────────────────────────
@@ -159,7 +159,7 @@ class _SetupWxDlg(wx.Dialog):
         self.Bind(wx.EVT_DPI_CHANGED, self._on_dpi_changed)
         self.Bind(wx.EVT_CHAR_HOOK,   self._on_key)
 
-        self.SetSize(self.FromDIP(wx.Size(500, 560)))
+        self.SetSize(self.FromDIP(wx.Size(500, 620)))
         self.Layout()
 
         if initial_pos:
@@ -194,24 +194,47 @@ class _SetupWxDlg(wx.Dialog):
         header.SetSizer(h_sizer)
         outer.Add(header, 0, wx.EXPAND)
 
-        # ── Notebook ─────────────────────────────────────────────────
-        nb = wx.Notebook(self)
-        nb.SetBackgroundColour(_BG)
-        nb.SetForegroundColour(_TEXT)
+        # ── Custom tab bar (pure Python, avoids native Win32 chrome) ────
+        tab_bar = wx.Panel(self)
+        tab_bar.SetBackgroundColour(_BG)
+        tab_bar_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self._tab_btns: list[GenButton] = []
+        for i, label in enumerate(["辨識", "翻譯", "顯示"]):
+            btn = GenButton(tab_bar, label=label,
+                            size=self.FromDIP(wx.Size(-1, 34)))
+            btn.SetBezelWidth(0)
+            btn.SetFont(self.GetFont())
+            btn.Bind(wx.EVT_BUTTON, lambda e, idx=i: self._switch_tab(idx))
+            tab_bar_sizer.Add(btn, 1, wx.EXPAND)
+            self._tab_btns.append(btn)
+        tab_bar.SetSizer(tab_bar_sizer)
+        outer.Add(tab_bar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, pad)
 
-        tab1 = wx.Panel(nb); tab1.SetBackgroundColour(_BG)
-        tab2 = wx.Panel(nb); tab2.SetBackgroundColour(_BG)
-        tab3 = wx.Panel(nb); tab3.SetBackgroundColour(_BG)
+        # ── Simplebook (no native page chrome) ───────────────────────
+        self._nb = wx.Simplebook(self)
+        self._nb.SetBackgroundColour(_BG)
 
-        nb.AddPage(tab1, "辨識")
-        nb.AddPage(tab2, "翻譯")
-        nb.AddPage(tab3, "顯示")
+        def _make_tab(parent):
+            sw = wx.ScrolledWindow(parent, style=wx.VSCROLL | wx.BORDER_NONE)
+            sw.SetBackgroundColour(_BG)
+            sw.SetScrollRate(0, self.FromDIP(16))
+            return sw
+
+        tab1 = _make_tab(self._nb)
+        tab2 = _make_tab(self._nb)
+        tab3 = _make_tab(self._nb)
+
+        self._nb.AddPage(tab1, "")
+        self._nb.AddPage(tab2, "")
+        self._nb.AddPage(tab3, "")
 
         self._build_tab_asr(tab1)
         self._build_tab_translation(tab2)
         self._build_tab_display(tab3)
 
-        outer.Add(nb, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, pad)
+        self._switch_tab(0)
+
+        outer.Add(self._nb, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
 
         # ── Warning + global buttons ──────────────────────────────────
         self._warn_lbl = _dark(wx.StaticText(self, label=""), fg=_WARN)
@@ -530,17 +553,43 @@ class _SetupWxDlg(wx.Dialog):
         b.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
         b.AddSpacer(self.FromDIP(14))
 
-        # ── 顯示選項 ─────────────────────────────────────────────────────
-        b.Add(_lbl("原文顯示"), 0, wx.LEFT | wx.RIGHT, pad)
+        # ── 字幕背景透明度 ────────────────────────────────────────────────
+        b.Add(_lbl("字幕背景透明度"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(6))
+        alpha_row = wx.BoxSizer(wx.HORIZONTAL)
+        self._sl_alpha = wx.Slider(panel, value=self._bg_alpha, minValue=20, maxValue=100,
+                                   style=wx.SL_HORIZONTAL, size=self.FromDIP(wx.Size(200, -1)))
+        alpha_val_lbl = _dark(wx.StaticText(panel, label=f"{self._bg_alpha}%",
+                                            size=self.FromDIP(wx.Size(40, -1))), fg=_TEXT)
+        self._sl_alpha.Bind(wx.EVT_SLIDER,
+                            lambda evt, _s=self._sl_alpha, _v=alpha_val_lbl: (
+                                _v.SetLabel(f"{_s.GetValue()}%"), evt.Skip()))
+        alpha_row.Add(self._sl_alpha, 1, wx.EXPAND | wx.RIGHT, self.FromDIP(8))
+        alpha_row.Add(alpha_val_lbl, 0, wx.ALIGN_CENTER_VERTICAL)
+        b.Add(alpha_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+
+        b.AddSpacer(self.FromDIP(14))
+        b.Add(wx.StaticLine(panel), 0, wx.EXPAND | wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(14))
+
+        # ── 字幕顯示模式 ──────────────────────────────────────────────────
+        b.Add(_lbl("字幕顯示"), 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(6))
+        self._rb_disp_both = _dark(
+            wx.RadioButton(panel, label="原文 + 翻譯", style=wx.RB_GROUP), fg=_TEXT)
+        self._rb_disp_original = _dark(
+            wx.RadioButton(panel, label="僅顯示原文"), fg=_TEXT)
+        self._rb_disp_translation = _dark(
+            wx.RadioButton(panel, label="僅顯示翻譯"), fg=_TEXT)
+        self._rb_disp_both.SetValue(self._display_mode == "both")
+        self._rb_disp_original.SetValue(self._display_mode == "original")
+        self._rb_disp_translation.SetValue(self._display_mode == "translation")
+        b.Add(self._rb_disp_both, 0, wx.LEFT | wx.RIGHT, pad)
         b.AddSpacer(self.FromDIP(4))
-        self._chk_corrected = _dark(
-            wx.CheckBox(panel, label="顯示校正後 ASR 原文"), fg=_TEXT)
-        self._chk_corrected.SetValue(self._show_corrected)
-        b.Add(self._chk_corrected, 0, wx.LEFT | wx.RIGHT, pad)
-        self._chk_raw = _dark(
-            wx.CheckBox(panel, label="顯示原始 ASR 辨識"), fg=_TEXT)
-        self._chk_raw.SetValue(self._show_raw)
-        b.Add(self._chk_raw, 0, wx.LEFT | wx.RIGHT | wx.TOP, self.FromDIP(4))
+        b.Add(self._rb_disp_original, 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(4))
+        b.Add(self._rb_disp_translation, 0, wx.LEFT | wx.RIGHT, pad)
+        b.AddSpacer(self.FromDIP(14))
 
         panel.SetSizer(b)
         self._update_preview()
@@ -551,6 +600,17 @@ class _SetupWxDlg(wx.Dialog):
         self._prev_en.SetFont(f_en)
         self._prev_zh.SetFont(f_zh)
         self._prev_en.GetParent().Layout()
+
+    def _switch_tab(self, idx: int):
+        self._nb.SetSelection(idx)
+        for i, btn in enumerate(self._tab_btns):
+            if i == idx:
+                btn.SetBackgroundColour(_ACCENT)
+                btn.SetForegroundColour(_BG)
+            else:
+                btn.SetBackgroundColour(_BTN_BG)
+                btn.SetForegroundColour(_TEXT)
+            btn.Refresh()
 
     def _on_mode_change(self, _event):
         is_local = self._rb_local_mode.GetValue()
@@ -643,8 +703,10 @@ class _SetupWxDlg(wx.Dialog):
                 "context":           self._ctx_entry.GetValue().strip(),
                 "en_font_size":      self._sl_en.GetValue(),
                 "zh_font_size":      self._sl_zh.GetValue(),
-                "show_raw":          self._chk_raw.GetValue(),
-                "show_corrected":    self._chk_corrected.GetValue(),
+                "display_mode":      ("both"        if self._rb_disp_both.GetValue()
+                                     else "original" if self._rb_disp_original.GetValue()
+                                     else "translation"),
+                "bg_alpha":          self._sl_alpha.GetValue(),
                 "enable_denoise":    self._chk_denoise.GetValue(),
                 "_dialog_x":         x,
                 "_dialog_y":         y,
@@ -675,8 +737,10 @@ class _SetupWxDlg(wx.Dialog):
                 "context":           self._ctx_entry.GetValue().strip(),
                 "en_font_size":      self._sl_en.GetValue(),
                 "zh_font_size":      self._sl_zh.GetValue(),
-                "show_raw":          self._chk_raw.GetValue(),
-                "show_corrected":    self._chk_corrected.GetValue(),
+                "display_mode":      ("both"        if self._rb_disp_both.GetValue()
+                                     else "original" if self._rb_disp_original.GetValue()
+                                     else "translation"),
+                "bg_alpha":          self._sl_alpha.GetValue(),
                 "enable_denoise":    self._chk_denoise.GetValue(),
                 "_dialog_x":         x,
                 "_dialog_y":         y,

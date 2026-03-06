@@ -203,10 +203,10 @@ def main() -> None:
     log.info("建立字幕覆疊視窗 (screen=%d)", args.screen)
     use_gtk = _GTK3_AVAILABLE and sys.platform != "win32"
     _cfg_fonts = load_config()
-    _en_font_size = int(_cfg_fonts.get("en_font_size", 15))
-    _zh_font_size = int(_cfg_fonts.get("zh_font_size", 24))
-    _show_raw = bool(_cfg_fonts.get("show_raw", False))
-    _show_corrected = bool(_cfg_fonts.get("show_corrected", True))
+    _en_font_size  = int(_cfg_fonts.get("en_font_size", 15))
+    _zh_font_size  = int(_cfg_fonts.get("zh_font_size", 24))
+    _display_mode  = _cfg_fonts.get("display_mode", "both")
+    _bg_alpha      = int(_cfg_fonts.get("bg_alpha", 100))
 
     # current_config 供設定 dialog 預填
     _current_config = {
@@ -217,8 +217,8 @@ def main() -> None:
         "direction": args.direction,
         "openai_api_key": args.openai_api_key,
         "context": args.context,
-        "show_raw": _show_raw,
-        "show_corrected": _show_corrected,
+        "display_mode": _display_mode,
+        "bg_alpha":     _bg_alpha,
         "enable_denoise": bool(_cfg_fonts.get("enable_denoise", True)),
         "backend":           cfg.get("backend", "remote"),
         "local_model_path":  cfg.get("local_model_path", ""),
@@ -282,8 +282,10 @@ def main() -> None:
         _last_raw[0] = ""
         _last_original[0] = ""
         _last_translated[0] = ""
-        overlay._show_raw = new_settings.get("show_raw", overlay._show_raw)
-        overlay._show_corrected = new_settings.get("show_corrected", overlay._show_corrected)
+        if "display_mode" in new_settings:
+            overlay.set_display_mode(new_settings["display_mode"])
+        if "bg_alpha" in new_settings:
+            overlay.set_bg_alpha(new_settings["bg_alpha"])
         overlay.reset()
         overlay.update_direction_label(current_direction[0])
         overlay.update_source_label(_current_config.get("source", "monitor"))
@@ -307,8 +309,8 @@ def main() -> None:
                 on_open_settings=on_open_settings,
                 en_font_size=_en_font_size,
                 zh_font_size=_zh_font_size,
-                show_raw=_show_raw,
-                show_corrected=_show_corrected,
+                display_mode=_display_mode,
+                bg_alpha=_bg_alpha,
                 monitor_hint=_monitor_hint,
             )
     except Exception:

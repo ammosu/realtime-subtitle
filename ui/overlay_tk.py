@@ -46,15 +46,14 @@ class SubtitleOverlay:
 
     def __init__(self, screen_index: int = 0, on_toggle_direction=None, on_switch_source=None, on_open_settings=None,
                  en_font_size: int = 15, zh_font_size: int = 24,
-                 show_raw: bool = False, show_corrected: bool = True,
+                 display_mode: str = "both", bg_alpha: int = 100,
                  monitor_hint: tuple | None = None):
         self._on_toggle_direction = on_toggle_direction
         self._on_switch_source = on_switch_source
         self._on_open_settings = on_open_settings
         self.EN_FONT = (self._FONT_FAMILY, en_font_size)
         self.ZH_FONT = (self._FONT_FAMILY, zh_font_size)
-        self._show_raw = show_raw
-        self._show_corrected = show_corrected
+        self._display_mode = display_mode
 
         self._root = tk.Tk()
 
@@ -71,7 +70,7 @@ class SubtitleOverlay:
         if sys.platform == "win32":
             self._root.overrideredirect(True)
             self._root.wm_attributes("-transparentcolor", self.BG_COLOR)
-            self._root.wm_attributes("-alpha", self.SUBTITLE_ALPHA)
+            self._root.wm_attributes("-alpha", bg_alpha / 100)
         else:
             # Linux：用 splash 類型讓 Mutter compositor 套用透明度
             # overrideredirect 的視窗不受 WM 管理，compositor 不對其合成
@@ -438,6 +437,14 @@ class SubtitleOverlay:
             self._redraw_text()
         self._root.after(0, _update)
 
+    def set_display_mode(self, mode: str) -> None:
+        self._display_mode = mode
+        self._root.after(0, self._redraw_text)
+
+    def set_bg_alpha(self, alpha: int) -> None:
+        if sys.platform == "win32":
+            self._root.after(0, lambda: self._root.wm_attributes("-alpha", alpha / 100))
+
     def set_text(self, raw: str = "", original: str = "", translated: str = "") -> None:
         """向下相容：僅用於清空（reset）場景。"""
         if not raw and not original and not translated:
@@ -459,8 +466,11 @@ class SubtitleOverlay:
             en_color = "#909090" if is_raw else self.EN_COLOR
             zh_color = "#909090" if is_raw else self.ZH_COLOR
 
+            show_orig  = self._display_mode in ("both", "original")
+            show_trans = self._display_mode in ("both", "translation")
+
             # EN / original line
-            if original:
+            if original and show_orig:
                 if not is_raw:
                     for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                         self._canvas.create_text(
@@ -474,7 +484,7 @@ class SubtitleOverlay:
                 cur_y = (bbox[3] if bbox else cur_y + 20) + 4
 
             # ZH / translated line
-            if translated:
+            if translated and show_trans:
                 if not is_raw:
                     for ox, oy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                         self._canvas.create_text(
